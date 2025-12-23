@@ -9,6 +9,9 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
+from catboost import CatBoostClassifier
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
 import joblib
 import argparse
@@ -72,6 +75,32 @@ class ModelTrainer:
                 min_samples_leaf=train_config.get('min_samples_leaf', 1),
                 random_state=train_config.get('random_state', 42),
                 class_weight=train_config.get('class_weight', None)
+            )
+        elif self.model_type == 'xgboost':
+            self.model = XGBClassifier(
+                tree_method=train_config.get('tree_method','gpu_hist'),
+                predictor=train_config.get('predictor','gpu_predictor'),
+                n_estimators=train_config.get('n_estimators','500'),
+                max_depth=train_config.get('max_depth', 6),
+                learning_rate=train_config.get('learning_rate', 0.05)
+            )
+        elif self.model_type == 'lightgbm':
+            self.model = LGBMClassifier(
+                device=train_config.get('device', 'gpu'),
+                gpu_platform_id=train_config.get('gpu_platform_id', 0),
+                gpu_device_id=train_config.get('gpu_device_id', 0),
+                n_estimators=train_config.get('n_estimators', 500),
+                learning_rate=train_config.get('learning_rate', 0.05),
+                num_leaves=train_config.get('num_leaves', 31),
+                max_depth=train_config.get('max_depth', -1),
+            )
+        elif self.model_type == 'catboost':
+            self.model = CatBoostClassifier(
+                task_type=train_config.get('task_type', 'GPU'),
+                devices=train_config.get('devices', "0"),
+                iterations=train_config.get('iterations', 500),
+                learning_rate=train_config.get('learning_rate', 0.05),
+                depth=train_config.get('depth', 6)
             )
         else:
             raise ValueError(f"Unsupported model type: {self.model_type}")
