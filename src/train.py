@@ -80,7 +80,7 @@ class ModelTrainer:
             self.model = XGBClassifier(
                 tree_method=train_config.get('tree_method','gpu_hist'),
                 predictor=train_config.get('predictor','gpu_predictor'),
-                n_estimators=train_config.get('n_estimators','500'),
+                n_estimators=train_config.get('n_estimators',500),
                 max_depth=train_config.get('max_depth', 6),
                 learning_rate=train_config.get('learning_rate', 0.05)
             )

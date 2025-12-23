@@ -18,8 +18,8 @@ stages:
       size: 71732
     - path: params.yml
       hash: md5
-      md5: 489dd3b90c0dddbefcd37864fbf011a7
-      size: 1165
+      md5: dc38788a9fbd720bb47e85ff10093f16
+      size: 1699
     - path: src/config.py
       hash: md5
       md5: fe369283108015fde88765d39b50233b
@@ -67,22 +67,22 @@ stages:
       size: 97247
     - path: params.yml
       hash: md5
-      md5: 489dd3b90c0dddbefcd37864fbf011a7
-      size: 1165
+      md5: dc38788a9fbd720bb47e85ff10093f16
+      size: 1699
     - path: src/config.py
       hash: md5
       md5: fe369283108015fde88765d39b50233b
       size: 5931
     - path: src/train.py
       hash: md5
-      md5: bd8ca8d613cd7676cd6b7306a9d08acf
-      size: 10346
+      md5: 17398bc0f75627b3aedb4e298901ae71
+      size: 11895
     params:
       params.yaml:
         data.random_state: 42
         data.test_size: 0.2
         train:
-          model_type: random_forest
+          model_type: decision_tree
           n_estimators: 100
           max_depth: 10
           min_samples_split: 5
@@ -95,8 +95,8 @@ stages:
     outs:
     - path: models/churn_model.pkl
       hash: md5
-      md5: 13ac2355739d4c675f564ebfe9c342fb
-      size: 899920
+      md5: 104eec4c0a374851e3425efdcfbb820d
+      size: 844896
   evaluate:
     cmd: python -m src.evaluate --config params.yml
     deps:
@@ -106,8 +106,8 @@ stages:
       size: 97247
     - path: models/churn_model.pkl
       hash: md5
-      md5: 13ac2355739d4c675f564ebfe9c342fb
-      size: 899920
+      md5: 104eec4c0a374851e3425efdcfbb820d
+      size: 844896
     - path: src/config.py
       hash: md5
       md5: fe369283108015fde88765d39b50233b
@@ -128,9 +128,9 @@ stages:
     outs:
     - path: metrics/metrics.json
       hash: md5
-      md5: eeab6093a80e8e4db0e266aa3bf09e03
-      size: 933
+      md5: ac0311262b74fb13e4244d2c573874cb
+      size: 935
     - path: plots/confusion_matrix.json
       hash: md5
-      md5: 9c65ecb478cdb016dfe48066751821a7
+      md5: c29592a4a0025c88b00b2bd36b82b8e5
       size: 352
