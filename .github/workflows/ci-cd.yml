@@ -1,0 +1,393 @@
+name: ML CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      run_training:
+        description: 'Run Model Training'
+        required: false
+        default: "true"
+
+env:
+  DOCKER_IMAGE: ${{ secrets.DOCKER_IMAGE }}/churn-classifier
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  # ==========================================
+  # Job 1: Code Quality & Linting
+  # ==========================================
+  lint:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Set up python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-lint-${{ hashFiles('requirements-dev.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-lint-
+            ${{ runner.os }}-pip-
+      
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black flake8
+      
+      - name: Run ruff
+        run: |
+          ruff check src/ tests/ --output-format=github
+        continue-on-error: false
+      
+      - name: Run Black 
+        run: |
+          black --check src/ tests/ --line-length=100
+        continue-on-error: true
+      
+      - name: Run flake8
+        run: |
+          flake8 src/ tests/ --max-line-length=100 --statistics
+        continue-on-error: true
+
+  # ==========================================
+  # Job 2: Unit Testing
+  # ==========================================
+  test: 
+    name: Unit test
+    runs-on: ubuntu-latest
+    needs: lint
+
+    strategy:
+      matrix: 
+        python-version: [ '3.9', '3.10', '3.11' ]
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Set up python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('requirements-dev.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      
+      - name: Generate sample data for tests
+        run: |
+          python -c "from src.utils import setup_directories, generate_sample_data; setup_directories(); generate_sample_data('data/raw/churn_data.csv', n_samples=500)"
+      
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/ -v \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-report=html
+      
+      - name: Upload coverage to codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittest
+          name: codecov-${{ matrix.python-version }}
+          fail_ci_if_error: false
+      
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.10'
+        with:
+          name: coverage-html
+          path: htmlcov/
+
+  # ==========================================
+  # Job 3: DVC Pipeline (Inside Container)
+  # ==========================================
+  dvc-pipeline-inside-container:
+    name: DVC Pipeline (Inside Container)
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install DVC
+        run: |
+          pip install dvc[s3]
+      
+      - name: Configure DVC remote (if using S3)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          if [ -n "$AWS_ACCESS_KEY_ID" ]; then
+            dvc remote modify myremote access_key_id $AWS_ACCESS_KEY_ID
+            dvc remote modify myremote secret_access_key $AWS_SECRET_ACCESS_KEY
+            echo "DVC remote configured with AWS credentials"
+          else
+            echo "AWS credentials not found, skipping DVC remote configuration"
+          fi
+
+      - name: Pull DVC data
+        run: |
+          dvc pull || echo "No remote data to pull"
+        continue-on-error: true
+
+      - name: Build Docker Image 
+        run: |
+          docker build -t ml-pipeline:latest -f docker/Dockerfile .
+      
+      - name: Run DVC pipeline in container 
+        run: |
+          docker run --rm \
+            -v $(pwd)/data:/app/data \
+            -v $(pwd)/models:/app/models \
+            -v $(pwd)/params.yml:/app/params.yml \
+            -v $(pwd)/metrics:/app/metrics \
+            -w /app \
+            ml-pipeline:latest \
+            bash -c "python -c 'from src.utils import setup_directories, generate_sample_data; setup_directories(); generate_sample_data(\"data/raw/churn_data.csv\", n_samples=1000)'"
+      
+      - name: Display metrics
+        run: |
+          if [ -f metrics/metrics.json ]; then
+            echo "Model metrics:"
+            cat metrics/metrics.json | python -m json.tool
+          fi
+      
+      - name: Push DVC data
+        run: |
+          dvc push || echo "Could not push to remote"
+        continue-on-error: true
+      
+      - name: Upload pipeline artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-outputs
+          path: |
+            models/*.pkl
+            metrics/metrics.json
+            plots/
+          retention-days: 30
+  
+  # ==========================================
+  # Job 4: Docker Build & Push
+  # ==========================================
+  docker-build:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Docker Hub
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          if [ -n "$DOCKER_USERNAME" ] && [ -n "$DOCKER_PASSWORD" ]; then
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+            echo "Successfully logged in to Docker Hub"
+          else
+            echo "Docker credentials not found, skipping login"
+          fi
+      
+      - name: Extract Metadata
+        id: meta 
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Check if Docker push is enabled
+        id: check_docker
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          if [ -n "$DOCKER_USERNAME" ]; then
+            echo "push_enabled=true" >> $GITHUB_OUTPUT
+          else
+            echo "push_enabled=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Build and Push Production Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: ${{ steps.check_docker.outputs.push_enabled == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+      
+      - name: Build Development Image
+        uses: docker/build-push-action@v5
+        with: 
+          context: .
+          file: ./docker/Dockerfile.dev
+          push: ${{ steps.check_docker.outputs.push_enabled == 'true' }}
+          tags: ${{ env.DOCKER_IMAGE }}:dev
+          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:dev-buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:dev-buildcache,mode=max
+      
+      - name: Image digest
+        run: echo ${{ steps.meta.outputs.digest }}
+
+  # ==========================================
+  # Job 5: Integration Test
+  # ==========================================
+  integration-test:
+    name: Integration Test 
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code 
+        uses: actions/checkout@v4
+      
+      - name: Login to docker hub 
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          if [ -n "$DOCKER_USERNAME" ] && [ -n "$DOCKER_PASSWORD" ]; then
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+            echo "Successfully logged in to Docker Hub"
+          else
+            echo "Docker credentials not found, will build image locally"
+          fi
+
+      - name: Setup directory structure
+        run: |
+          mkdir -p data/raw data/processed models metrics plots
+          rm -rf metrics/metrics.json 2>/dev/null || true
+          echo "Directory structure prepared"
+      
+      - name: Pull latest image 
+        run: |
+          docker pull ${{ env.DOCKER_IMAGE }}:latest || docker build -t ${{ env.DOCKER_IMAGE }}:latest -f docker/Dockerfile .
+
+      - name: Test preprocessing
+        run: |
+          docker run --rm \
+            -v $(pwd)/data:/app/data \
+            -v $(pwd)/params.yml:/app/params.yml \
+            ${{ env.DOCKER_IMAGE }}:latest \
+            bash -c "python -c 'from src.utils import setup_directories, generate_sample_data; setup_directories(); generate_sample_data(\"data/raw/churn_data.csv\", n_samples=100)' && python -m src.preprocess"
+      
+      - name: Test Training
+        run: |
+          docker run --rm \
+            -v $(pwd)/data:/app/data \
+            -v $(pwd)/models:/app/models \
+            -v $(pwd)/params.yml:/app/params.yml \
+            ${{ env.DOCKER_IMAGE }}:latest \
+            python -m src.train
+      
+      - name: Test evaluation
+        run: |
+          docker run --rm \
+            -v $(pwd)/data:/app/data \
+            -v $(pwd)/models:/app/models \
+            -v $(pwd)/params.yml:/app/params.yml \
+            -v $(pwd)/metrics:/app/metrics \
+            ${{ env.DOCKER_IMAGE }}:latest \
+            python -m src.evaluate
+      
+      - name: Verify outputs
+        run: |
+          if [ -f models/churn_model.pkl ]; then
+            echo "Model file created successfully"
+          else
+            echo "Model file not found"
+            exit 1
+          fi
+
+          if [ -f metrics/metrics.json ]; then
+            echo "Metrics file created successfully"
+            cat metrics/metrics.json
+          else  
+            echo "Metrics file not found"
+            exit 1
+          fi
+
+  # ==========================================
+  # Job 6: Status Check
+  # ==========================================
+  status-check:
+    name: Pipeline Status
+    runs-on: ubuntu-latest
+    needs: [lint, test, docker-build, integration-test]
+    if: always()
+
+    steps:
+      - name: Check Pipeline status
+        run: |
+          echo "========================================="
+          echo "CI/CD Pipeline Status"
+          echo "========================================="
+          echo "Lint:             ${{ needs.lint.result }}"
+          echo "Test:             ${{ needs.test.result }}"
+          echo "Docker Build:     ${{ needs.docker-build.result }}"
+          echo "Integration Test: ${{ needs.integration-test.result }}"
+          echo "========================================="
+
+          if [[ "${{ needs.lint.result }}" == "failure" || \
+                "${{ needs.test.result }}" == "failure" ]]; then
+            echo "CI Pipeline failed"
+            exit 1
+          elif [[ "${{ needs.docker-build.result }}" == "failure" || \
+                  "${{ needs.integration-test.result }}" == "failure" ]]; then
+            echo "CD Pipeline Failed"
+            exit 1
+          else  
+            echo "CI/CD Pipeline completed successfully"
+          fi
+      
+      - name: Send notification 
+        if: failure()
+        run: |
+          echo "Pipeline failed - Add notification logic here"
