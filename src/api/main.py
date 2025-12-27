@@ -8,9 +8,8 @@ from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, File, Uplo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
-from typing import List, Optional
+from typing import List
 import pandas as pd
-import numpy as np
 from datetime import datetime
 import io
 
@@ -19,12 +18,11 @@ from src.api.models import (
     PredictionResponse,
     BatchPredictionRequest,
     HealthResponse,
-    ModelInfoResponse,
     PredictionHistoryResponse,
 )
 
 from src.api.database import get_db, engine
-from src.api import crud, schemas
+from src.api import crud
 from src.api.ml_service import MLService
 from src.utils import logger
 from sqlalchemy.orm import Session
@@ -43,7 +41,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credetionals=True,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -210,7 +208,7 @@ async def predict_csv(
       contract, payment_method, internet_service
     """
     try:
-        contents= await file.read()
+        contents = await file.read()
         df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
 
         required_col = [
@@ -244,4 +242,82 @@ async def predict_csv(
 # ==========================================
 # History & Analytics Endpoints
 # ==========================================
-@app.get()
+@app.get("/predictions/history", response_model=List[PredictionHistoryResponse])
+async def get_prediction_history(
+    skip: int = 0,
+    limit: 100 = 0,
+    db: Session = Depends(get_db)
+):
+    """Get prediction history from database"""
+    try:
+        predictions = crud.get_prediction(db, skip=skip, limit=limit)
+        return predictions
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/predictions/customer/{customer_id}", response_model=List[PredictionHistoryResponse])
+async def get_customer_prediction(
+    customer_id: str,
+    db: Session = get_db
+):
+    """Get prediction history for specific customer"""
+    try:
+        predictions = crud.get_customer_predictions(db, customer_id)
+        if not predictions:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        return predictions
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("analytics/summary")
+async def get_analytics_summary(
+    db: Session = Depends(get_db)
+):
+    """Get prediction analytics summary"""
+    try:
+        stats = crud.get_prediction_statistics(db)
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# Model Management Endpoints
+# ==========================================
+@app.post("/model/reload")
+async def reload_model():
+    try:
+        ml_service.load_model()
+        return {"message":"Model Reload Sucessfuly", "timestamp":datetime.utcnow()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reload model: {str(e)}")
+
+# ==========================================
+# Startup & Shutdown Events
+# ==========================================
+@app.on_event("startup")
+async def startup_event():
+    """Load model on startup"""
+    logger.info("Starting Churn Prediction API...")
+    try:
+        ml_service.load_model()
+        logger.info("Model loaded successfully")
+    except Exception as e:
+        logger.error(f"Failed to load model: {str(e)}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    logger.info("Shutting down Churn Prediction API...")
+
+# ==========================================
+# Main Entry Point
+# ==========================================
+if __name__ == "__main__":
+    uvicorn.run(
+        "src.api.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level='info'
+    )

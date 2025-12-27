@@ -126,6 +126,34 @@ services:
     networks:
       - ml-network
 
+  api:
+    build:
+      context: ..
+      dockerfile: dockerfile/Dockerfile.api
+    corntainer_name: churn-api
+    image: churn-classifier.api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../models:/app/models
+      - ../params.yml:/app/params.yml
+      - ../data:/app/data
+      - api-db:/app/db
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=sqlite:///./db/churn_predictions.db
+    networks:
+      - ml-network
+    restart: unless-stopped
+    depends_on:
+      - ml-training
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
 networks:
   ml-network:
     driver: bridge
