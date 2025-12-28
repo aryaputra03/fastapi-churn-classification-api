@@ -102,7 +102,7 @@ clean:  ## Clean generated files
 
 clean-data:  ## Clean data files (WARNING: removes generated data)
 	rm -rf data/raw/*.csv data/processed/*.csv
-	@echo "⚠️  Data files removed!"
+	@echo "Data files removed!"
 
 clean-models:  ## Clean model files
 	rm -rf models/*.pkl
@@ -110,3 +110,28 @@ clean-models:  ## Clean model files
 
 clean-all: clean clean-data clean-models  ## Clean everything
 	@echo "🧹 Everything cleaned!"
+
+api-run:  ## Run FastAPI server
+	uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+api-run-prod:  ## Run FastAPI in production mode
+	uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 4
+
+api-test:  ## Test API endpoints
+	pytest tests/test_api.py -v
+
+api-docker:  ## Run API in Docker
+	docker-compose -f docker/docker-compose.yml up api
+
+api-docker-postgres:  ## Run API with PostgreSQL
+	docker-compose -f docker/docker-compose.yml up postgres api-postgres
+
+db-init:  ## Initialize database
+	python -c "from src.api.database import Base, engine; Base.metadata.create_all(bind=engine); print('Database initialized')"
+
+db-migrate:  ## Run database migrations (if using Alembic)
+	alembic upgrade head
+
+db-reset:  ## Reset database
+	rm -f churn_predictions.db
+	$(MAKE) db-init

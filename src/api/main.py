@@ -18,6 +18,7 @@ from src.api.models import (
     PredictionResponse,
     BatchPredictionRequest,
     HealthResponse,
+    ModelInfoResponse,
     PredictionHistoryResponse,
 )
 
@@ -80,6 +81,15 @@ async def health_check():
             timestamp=datetime.utcnow(),
             error=str(e)
         )
+
+@app.get("/model/info", response_model=ModelInfoResponse)
+async def model_info():
+    """Get model information"""
+    try:
+        info = ml_service.get_model_info()
+        return ModelInfoResponse(**info)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
 # Prediction Endpoints

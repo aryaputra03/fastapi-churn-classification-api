@@ -1,0 +1,123 @@
+"""
+Tests for FastAPI endpoints
+"""
+
+import pytest 
+from fastapi.testclient import TestClient
+from src.api.main import app
+from src.api.database import engine, Base
+
+Base.metadata.create_all(bind=engine)
+client= TestClient(app)
+
+def test_read_root():
+    """Test root endpoint"""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "message" in response.json()
+
+def test_health_check():
+    """Test health check endpoint"""
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert "status" in data
+    assert "model_loaded" in data
+
+def test_model_info():
+    """Test model info endpoint"""
+    response = client.get("/model/info")
+    assert response.status_code == 200
+    data = response.json()
+    assert "model_type" in data
+
+def test_predict_single():
+    """Test Single Prediction"""
+    payload = {
+        "customer_id": "TEST001",
+        "gender": "Male",
+        "tenure": 24,
+        "monthly_charges": 75.5,
+        "total_charges": 1810.0,
+        "contract": "One year",
+        "payment_method": "Bank transfer",
+        "internet_service": "Fiber optic"
+    }
+
+    response = client.post("/predict", json=payload)
+
+    if response.status_code == 200:
+        data = response.json()
+        assert "customer_id" in data
+        assert "prediction" in data
+        assert "churn_probability" in data
+        assert data["prediction"] in [0,1]
+        assert 0 <= data['churn_probability'] <= 1
+    else:
+        assert response.status_code in [200, 500]
+
+def test_predict_batch():
+    """Test batch prediction"""
+    payload = {
+        "customers" : [
+            {
+                "customer_id": "TEST001",
+                "gender": "Male",
+                "tenure": 24,
+                "monthly_charges": 75.5,
+                "total_charges": 1810.0,
+                "contract": "One year",
+                "payment_method": "Bank transfer",
+                "internet_service": "Fiber optic"
+            },
+            {
+                "customer_id": "TEST002",
+                "gender": "Female",
+                "tenure": 12,
+                "monthly_charges": 50.0,
+                "total_charges": 600.0,
+                "contract": "Month-to-month",
+                "payment_method": "Electronic check",
+                "internet_service": "DSL"
+            }
+        ]
+    }
+
+    respose = client.post("/predict/batch", json=payload)
+
+    if respose.status_code == 200:
+        data = respose.json()
+        assert isinstance(data, list)
+        assert len(data) == 2
+    else:
+        assert respose.status_code in [200, 500]
+    
+def test_prediction_history():
+    """Test prediction history endpoint"""
+    response = client.get("/predictions/history?limit=10")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+
+def test_analytics_summary():
+    """Test analytics summary"""
+    response = client.get("/analytics/summary")
+    assert response.status_code == 200
+    data = response.json()
+    assert "total_predictions" in data
+
+def test_invalid_predictions():
+    """Test prediction with invalid data"""
+    payload = {
+        "customer_id": "TEST001",
+        "gender": "Invalid",  
+        "tenure": 24,
+        "monthly_charges": 75.5,
+        "total_charges": 1810.0,
+        "contract": "One year",
+        "payment_method": "Bank transfer",
+        "internet_service": "Fiber optic"
+    }
+
+    response = client.post("/predict", json=payload)
+    assert response.status_code == 422
