@@ -88,7 +88,7 @@ class ModelInfoResponse(BaseModel):
     model_version: str
     features: List[str]
     trained_at: Optional[str]
-    accuracy: Optional[float]
+    accuracy: Optional[float] = None
 
 class PredictionHistoryResponse(BaseModel):
     """Prediction history response"""
