@@ -29,7 +29,6 @@ from src.utils import logger
 from sqlalchemy.orm import Session
 
 from src.api.database import Base
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Churn Prediciton API",
@@ -316,6 +315,7 @@ async def reload_model():
 async def startup_event():
     """Load model on startup"""
     logger.info("Starting Churn Prediction API...")
+    Base.metadata.create_all(bind=engine)
     try:
         ml_service.load_model()
         logger.info("Model loaded successfully")
