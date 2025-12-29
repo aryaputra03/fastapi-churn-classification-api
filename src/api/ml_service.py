@@ -25,11 +25,6 @@ class MLService:
         self.config = None
         self.model_info = {}
 
-        try:
-            self.load_model()
-        except Exception as e:
-            logger.warning(f"Could not load model on init: {str(e)}")
-
     def load_model(self, model_path: str = None) -> None:
         """
         Load ML model from disk
