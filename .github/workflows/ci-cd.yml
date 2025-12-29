@@ -484,7 +484,7 @@ jobs:
             curl -f -X POST http://localhost:8000/predict \
               -H "Content-Type: application/json" \
               -d '{
-                "customer_id": "TEST001",
+              "customer_id": "TEST001",
               "gender": "Male",
               "tenure": 24,
               "monthly_charges": 75.5,
