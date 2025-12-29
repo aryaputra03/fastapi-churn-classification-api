@@ -1,4 +1,4 @@
-name: ML CI/CD Pipeline
+name: ML CI/CD Pipeline with FastAPI
 
 on:
   push:
@@ -11,10 +11,15 @@ on:
         description: 'Run Model Training'
         required: false
         default: "true"
+      deploy_api:
+        description: "Deploy API after successful build"
+        required: false
+        default: "false"
 
 env:
   DOCKER_IMAGE: ${{ secrets.DOCKER_IMAGE }}/churn-classifier
   PYTHON_VERSION: '3.10'
+  NODE_ENV: production
 
 jobs:
   # ==========================================
@@ -72,7 +77,7 @@ jobs:
 
     strategy:
       matrix: 
-        python-version: [ '3.9', '3.10', '3.11' ]
+        python-version: [ '3.10', '3.11' ]
     
     steps:
       - name: Checkout Code
@@ -122,14 +127,76 @@ jobs:
         with:
           name: coverage-html
           path: htmlcov/
+  
+  # ==========================================
+  # Job 3: API Tests
+  # ==========================================
+  test-api:
+    name: API Integration Test
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+        
+      - name: Generate sample data and train model
+        run: |
+          python -c "from src.utils import setup_directories, generate_sample_data; setup_directories(); generate_sample_data('data/raw/churn_data.csv', n_samples=500)"
+          python -m src.preprocess
+          python -m src.train
+
+      - name: Initialize database
+        run: |
+          python -c "from src.api.database import Base, engine; Base.metadata.create_all(bind=engine); print('Database Initialized')"
+      
+      - name: Run API tests
+        run: |
+          pytest tests/test_api.py -v --cov=src.api
+      
+      - name: Start API Server (Background)
+        run: |
+          uvicorn src.api.main:app --host 0.0.0.0 --port 8000 &
+          sleep 10
+      
+      - name: Test API Endpoint
+        run: |
+          curl -f http://localhost:8000/health || exit 1
+          
+          curl -f http://localhost:8000/model/info || exit 1
+          
+          curl -f -X POST http://localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{
+              "customer_id": "TEST001",
+              "gender": "Male",
+              "tenure": 24,
+              "monthly_charges": 75.5,
+              "total_charges": 1810.0,
+              "contract": "One year",
+              "payment_method": "Bank transfer",
+              "internet_service": "Fiber optic"  
+            }' || exit 1
+          echo "All API endpoints working"
+
 
   # ==========================================
-  # Job 3: DVC Pipeline (Inside Container)
+  # Job 4: DVC Pipeline (Inside Container)
   # ==========================================
   dvc-pipeline-inside-container:
     name: DVC Pipeline (Inside Container)
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, test-api]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
@@ -178,8 +245,13 @@ jobs:
             -v $(pwd)/metrics:/app/metrics \
             -w /app \
             ml-pipeline:latest \
-            bash -c "python -c 'from src.utils import setup_directories, generate_sample_data; setup_directories(); generate_sample_data(\"data/raw/churn_data.csv\", n_samples=1000)'"
-      
+            bash -c "
+              python -c 'from src.utils import setup_directories, generate_sample_data; setup_directories(); generate_sample_data(\"data/raw/churn_data.csv\", n_samples=1000)' &&
+              python -m src.preprocess &&
+              python -m src.train &&
+              python -m src.evaluate
+              "
+    
       - name: Display metrics
         run: |
           if [ -f metrics/metrics.json ]; then
@@ -203,12 +275,12 @@ jobs:
           retention-days: 30
   
   # ==========================================
-  # Job 4: Docker Build & Push
+  # Job 5: Docker Build & Push (ML Model)
   # ==========================================
   docker-build:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test, test-api]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     steps:
@@ -276,12 +348,46 @@ jobs:
         run: echo ${{ steps.meta.outputs.digest }}
 
   # ==========================================
-  # Job 5: Integration Test
+  # Job 6: Docker Build & Push (FastAPI)
+  # ==========================================
+  docker-build-api:
+    name: Build FastAPI Docker Image
+    runs-on: ubuntu-latest
+    needs: [test, test-api]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: Build and Push API Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.api
+          push: ${{ secrets.DOCKER_USERNAME != '' }}
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:api
+            ${{ env.DOCKER_IMAGE }}:api-${{ github.sha }}
+          cache-from: type=registry, ref=${{ env.DOCKER_IMAGE }}:api-buildcache
+          cache-to: type=registry, ref=${{ env.DOCKER_IMAGE }}:api-buildcache, mode=max
+  
+  # ==========================================
+  # Job 7: Integration Test
   # ==========================================
   integration-test:
     name: Integration Test 
     runs-on: ubuntu-latest
-    needs: docker-build
+    needs: [docker-build, docker-build-api]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
@@ -353,41 +459,86 @@ jobs:
             echo "Metrics file not found"
             exit 1
           fi
+      
+      - name: Pull API image
+        run: |
+          docker pull ${{ env.DOCKER_IMAGE }}:api || docker build -t ${{ env.DOCKER_IMAGE }}:api -f docker/Dockerfile.api .
+      
+      - name: Test API Container 
+        run: |
+          docker run -d \
+            --name test-api \
+            -p 8000:8000 \
+            -v $(pwd)/models:/app/models \
+            -v $(pwd)/params.yml:/app/params.yml \
+            ${{ env.DOCKER_IMAGE }}:api
+
+            echo "Waiting for API to Start..."
+            sleep 15
+
+            curl -f http://localhost:8000/health || exit 1
+            echo "Health check passes"
+
+            curl -f -X POST http://localhost:8000/predict \
+              -H "Content-Type: application/json" \
+              -d '{
+                "customer_id": "TEST001",
+              "gender": "Male",
+              "tenure": 24,
+              "monthly_charges": 75.5,
+              "total_charges": 1810.0,
+              "contract": "One year",
+              "payment_method": "Bank transfer",
+              "internet_service": "Fiber optic"
+              }' || exit 1
+            echo "Prediciton endpoint passed"
+
+            docker stop test-api
+            docker rm test-api
 
   # ==========================================
-  # Job 6: Status Check
+  # Job 8: Notification & Status
   # ==========================================
-  status-check:
-    name: Pipeline Status
+  notify:
+    name: Notifications
     runs-on: ubuntu-latest
-    needs: [lint, test, docker-build, integration-test]
+    needs: [lint, test, test-api, integration-test]
     if: always()
-
+    
     steps:
-      - name: Check Pipeline status
+      - name: Check pipeline status
         run: |
           echo "========================================="
           echo "CI/CD Pipeline Status"
           echo "========================================="
           echo "Lint:             ${{ needs.lint.result }}"
           echo "Test:             ${{ needs.test.result }}"
-          echo "Docker Build:     ${{ needs.docker-build.result }}"
+          echo "API Test:         ${{ needs.test-api.result }}"
           echo "Integration Test: ${{ needs.integration-test.result }}"
           echo "========================================="
-
+          
           if [[ "${{ needs.lint.result }}" == "failure" || \
-                "${{ needs.test.result }}" == "failure" ]]; then
-            echo "CI Pipeline failed"
+                "${{ needs.test.result }}" == "failure" || \
+                "${{ needs.test-api.result }}" == "failure" ]]; then
+            echo "CI Pipeline Failed"
             exit 1
-          elif [[ "${{ needs.docker-build.result }}" == "failure" || \
-                  "${{ needs.integration-test.result }}" == "failure" ]]; then
+          elif [[ "${{ needs.integration-test.result }}" == "failure" ]]; then
             echo "CD Pipeline Failed"
             exit 1
-          else  
-            echo "CI/CD Pipeline completed successfully"
+          else
+            echo "CI/CD Pipeline Passed"
           fi
       
-      - name: Send notification 
-        if: failure()
-        run: |
-          echo "Pipeline failed - Add notification logic here"
+      - name: Create GitHub issue on failure
+        if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'CI/CD Pipeline Failed',
+              body: `Pipeline failed for commit ${context.sha}\n\nWorkflow: ${context.workflow}\nRun: ${context.runId}`,
+              labels: ['ci-cd', 'bug']
+            })       
+
