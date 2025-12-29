@@ -198,13 +198,13 @@ async def predict_batch(
                 input_data=customer.dict()
             )
 
-        return response
+        return responses
     
     except Exception as e:
         logger.error(f"Batch prediction error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Batch prediction failed: {str(e)}")
 
-@app.post("predict/csv")
+@app.post("/predict/csv")
 async def predict_csv(
     file: UploadFile = File(...),
     background_task: BackgroundTasks = None,
@@ -234,7 +234,7 @@ async def predict_csv(
         
         predictions, probabilities = ml_service.predict(df)
 
-        df['prediciton'] = predictions
+        df['prediction'] = predictions
         df['churn_probability'] = probabilities[:, 1]
         df['no_churn_probability'] = probabilities[:, 0]
 
@@ -255,7 +255,7 @@ async def predict_csv(
 @app.get("/predictions/history", response_model=List[PredictionHistoryResponse])
 async def get_prediction_history(
     skip: int = Query(0, ge=0),
-    limit: int = Query(0, le=100, ge=1),
+    limit: int = Query(100, le=1000, ge=1),
     db: Session = Depends(get_db)
 ):
     """Get prediction history from database"""
@@ -268,7 +268,7 @@ async def get_prediction_history(
 @app.get("/predictions/customer/{customer_id}", response_model=List[PredictionHistoryResponse])
 async def get_customer_prediction(
     customer_id: str,
-    db: Session = get_db
+    db: Session = Depends(get_db)
 ):
     """Get prediction history for specific customer"""
     try:
@@ -280,7 +280,7 @@ async def get_customer_prediction(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("analytics/summary")
+@app.get("/analytics/summary")
 async def get_analytics_summary(
     db: Session = Depends(get_db)
 ):
