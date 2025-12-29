@@ -86,8 +86,8 @@ class ModelInfoResponse(BaseModel):
     """Model information response"""
     model_type: str
     model_version: str
-    features: List[str]
-    trained_at: Optional[str]
+    features: Optional[List[str]] = []
+    trained_at: Optional[str] = None
     accuracy: Optional[float] = None
 
 class PredictionHistoryResponse(BaseModel):

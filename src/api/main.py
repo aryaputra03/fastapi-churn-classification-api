@@ -89,7 +89,14 @@ async def model_info():
         info = ml_service.get_model_info()
         return ModelInfoResponse(**info)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(e)
+        return ModelInfoResponse(
+            model_type="unknown",
+            model_version="unknown",
+            features=[],
+            trained_at=None,
+            accuracy=None
+        )
 
 # ==========================================
 # Prediction Endpoints
