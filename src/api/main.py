@@ -4,7 +4,7 @@ FastAPI Main Application
 REST API for customer churn prediction with database logging.
 """
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, File, UploadFile
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, File, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -254,8 +254,8 @@ async def predict_csv(
 # ==========================================
 @app.get("/predictions/history", response_model=List[PredictionHistoryResponse])
 async def get_prediction_history(
-    skip: int = 0,
-    limit: 100 = 0,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(0, le=100, ge=1),
     db: Session = Depends(get_db)
 ):
     """Get prediction history from database"""
