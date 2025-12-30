@@ -25,21 +25,23 @@ class MLService:
         self.config = None
         self.model_info = {}
         
-        # Preprocessing components
+        # Preprocessing components - will be fitted during first prediction
         self.label_encoders = {}
         self.scaler = None
-        self._setup_preprocessors()
+        self.is_fitted = False
         
         # Try to load model on initialization
         try:
             self.load_model()
+            self._setup_preprocessors()
         except Exception as e:
             logger.warning(f"Could not load model on init: {str(e)}")
     
     def _setup_preprocessors(self):
         """Initialize preprocessing components"""
         try:
-            self.config = Config("params.yaml")
+            if self.config is None:
+                self.config = Config("params.yaml")
             
             # Initialize scaler based on config
             scale_method = self.config.preprocess.get('scale_method', 'standard')
@@ -96,137 +98,6 @@ class MLService:
         """Check if model is loaded"""
         return self.model is not None
     
-    def _handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Handle missing values in input data
-        
-        Args:
-            df: Input dataframe
-            
-        Returns:
-            DataFrame with handled missing values
-        """
-        df = df.copy()
-        
-        # Convert TotalCharges to numeric if present
-        if 'TotalCharges' in df.columns or 'total_charges' in df.columns:
-            col_name = 'TotalCharges' if 'TotalCharges' in df.columns else 'total_charges'
-            df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
-        
-        # Fill missing values
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        if len(numeric_cols) > 0:
-            df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
-        
-        categorical_cols = df.select_dtypes(include=['object']).columns
-        if len(categorical_cols) > 0:
-            for col in categorical_cols:
-                df[col] = df[col].fillna(df[col].mode()[0] if len(df[col].mode()) > 0 else 'Unknown')
-        
-        return df
-    
-    def _encode_categorical(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Encode categorical features
-        
-        Args:
-            df: Input dataframe
-            
-        Returns:
-            DataFrame with encoded categorical features
-        """
-        df = df.copy()
-        
-        categorical_features = self.config.preprocess.get('categorical_features', [])
-        
-        for col in categorical_features:
-            # Handle both lowercase and original case column names
-            actual_col = None
-            if col in df.columns:
-                actual_col = col
-            elif col.lower() in df.columns:
-                actual_col = col.lower()
-            elif col.replace('_', '').lower() in [c.lower() for c in df.columns]:
-                # Find matching column ignoring case and underscores
-                for df_col in df.columns:
-                    if df_col.replace('_', '').lower() == col.replace('_', '').lower():
-                        actual_col = df_col
-                        break
-            
-            if actual_col is not None:
-                # Initialize encoder if not exists
-                if col not in self.label_encoders:
-                    self.label_encoders[col] = LabelEncoder()
-                    # Fit on all possible values for this feature
-                    # For new/unseen values, we'll handle them separately
-                
-                try:
-                    # Get unique values
-                    unique_vals = df[actual_col].unique()
-                    
-                    # Fit encoder if not fitted or update with new values
-                    if not hasattr(self.label_encoders[col], 'classes_'):
-                        self.label_encoders[col].fit(df[actual_col].astype(str))
-                    else:
-                        # Handle unseen categories
-                        existing_classes = set(self.label_encoders[col].classes_)
-                        new_classes = set(unique_vals.astype(str)) - existing_classes
-                        
-                        if new_classes:
-                            # Add new classes to encoder
-                            all_classes = list(existing_classes) + list(new_classes)
-                            self.label_encoders[col].classes_ = np.array(all_classes)
-                    
-                    # Transform the column
-                    df[actual_col] = self.label_encoders[col].transform(df[actual_col].astype(str))
-                    
-                except Exception as e:
-                    logger.warning(f"Could not encode {actual_col}: {str(e)}")
-        
-        return df
-    
-    def _scale_numerical(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Scale numerical features
-        
-        Args:
-            df: Input dataframe
-            
-        Returns:
-            DataFrame with scaled numerical features
-        """
-        df = df.copy()
-        
-        numerical_features = self.config.preprocess.get('numerical_features', [])
-        
-        # Find actual column names (handle case variations)
-        existing_cols = []
-        for col in numerical_features:
-            if col in df.columns:
-                existing_cols.append(col)
-            elif col.lower() in df.columns:
-                existing_cols.append(col.lower())
-            else:
-                # Try to find column ignoring case and underscores
-                for df_col in df.columns:
-                    if df_col.replace('_', '').lower() == col.replace('_', '').lower():
-                        existing_cols.append(df_col)
-                        break
-        
-        if existing_cols:
-            try:
-                # Fit scaler if not fitted
-                if not hasattr(self.scaler, 'mean_'):
-                    self.scaler.fit(df[existing_cols])
-                
-                # Transform
-                df[existing_cols] = self.scaler.transform(df[existing_cols])
-                
-            except Exception as e:
-                logger.warning(f"Could not scale numerical features: {str(e)}")
-        
-        return df
-    
     def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Normalize column names to match expected format
@@ -239,38 +110,73 @@ class MLService:
         """
         df = df.copy()
         
-        # Mapping from possible input names to expected names
-        column_mapping = {
-            'customerid': 'customer_id',
-            'customer_id': 'customer_id',
-            'totalcharges': 'total_charges',
-            'total_charges': 'total_charges',
-            'monthlycharges': 'monthly_charges',
-            'monthly_charges': 'monthly_charges',
-            'paymentmethod': 'payment_method',
-            'payment_method': 'payment_method',
-            'internetservice': 'internet_service',
-            'internet_service': 'internet_service',
-        }
-        
-        # Rename columns
-        rename_dict = {}
+        # Create mapping with all variations
+        column_mapping = {}
         for col in df.columns:
             col_lower = col.lower().replace(' ', '_')
-            if col_lower in column_mapping:
-                rename_dict[col] = column_mapping[col_lower]
-            elif col.lower() != col:
-                rename_dict[col] = col.lower()
+            
+            # Map to standard names
+            if col_lower in ['customerid', 'customer_id']:
+                column_mapping[col] = 'customer_id'
+            elif col_lower in ['totalcharges', 'total_charges']:
+                column_mapping[col] = 'total_charges'
+            elif col_lower in ['monthlycharges', 'monthly_charges']:
+                column_mapping[col] = 'monthly_charges'
+            elif col_lower in ['paymentmethod', 'payment_method']:
+                column_mapping[col] = 'payment_method'
+            elif col_lower in ['internetservice', 'internet_service']:
+                column_mapping[col] = 'internet_service'
+            elif col != col_lower:
+                column_mapping[col] = col_lower
         
-        if rename_dict:
-            df = df.rename(columns=rename_dict)
+        if column_mapping:
+            df = df.rename(columns=column_mapping)
         
         return df
+    
+    def _prepare_encoders_and_scaler(self, df: pd.DataFrame) -> None:
+        """
+        Prepare encoders and scaler using reasonable defaults
+        This simulates the training preprocessing without needing training data
+        
+        Args:
+            df: Sample dataframe to determine data types
+        """
+        if self.is_fitted:
+            return
+            
+        try:
+            # Define expected categorical values based on domain knowledge
+            categorical_defaults = {
+                'gender': ['Male', 'Female'],
+                'contract': ['Month-to-month', 'One year', 'Two year'],
+                'payment_method': ['Electronic check', 'Mailed check', 'Bank transfer', 'Credit card'],
+                'internet_service': ['DSL', 'Fiber optic', 'No']
+            }
+            
+            # Initialize label encoders with default values
+            for col, values in categorical_defaults.items():
+                if col in df.columns or col.title() in df.columns or col.replace('_', '').title() in df.columns:
+                    self.label_encoders[col] = LabelEncoder()
+                    self.label_encoders[col].fit(values)
+            
+            # Fit scaler on current data (will normalize based on this sample)
+            numerical_features = ['tenure', 'monthly_charges', 'total_charges']
+            existing_num_cols = [col for col in numerical_features if col in df.columns]
+            
+            if existing_num_cols and self.scaler is not None:
+                # Use reasonable defaults for scaling if data is limited
+                if len(df) > 0:
+                    self.scaler.fit(df[existing_num_cols])
+                    self.is_fitted = True
+                    
+        except Exception as e:
+            logger.warning(f"Could not fully prepare preprocessors: {str(e)}")
     
     def preprocess_input(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Preprocess input data to match model expectations
-        Complete preprocessing pipeline including encoding and scaling
+        Simplified preprocessing that doesn't require pre-fitted transformers
         
         Args:
             data: Input dataframe
@@ -284,20 +190,65 @@ class MLService:
         # Normalize column names
         df = self._normalize_column_names(df)
         
-        # Handle missing values
-        df = self._handle_missing_values(df)
-        
-        # Remove customer_id if present (not used in prediction)
-        customer_id_cols = ['customer_id', 'customerID', 'customerid']
-        for col in customer_id_cols:
+        # Remove customer_id if present
+        for col in ['customer_id', 'customerID', 'customerid']:
             if col in df.columns:
                 df = df.drop(columns=[col])
         
-        # Encode categorical features
-        df = self._encode_categorical(df)
+        # Handle missing values in TotalCharges
+        if 'total_charges' in df.columns:
+            df['total_charges'] = pd.to_numeric(df['total_charges'], errors='coerce')
+            if df['total_charges'].isna().any():
+                # Use monthly_charges * tenure as estimate
+                if 'monthly_charges' in df.columns and 'tenure' in df.columns:
+                    df['total_charges'] = df['total_charges'].fillna(
+                        df['monthly_charges'] * df['tenure']
+                    )
+                else:
+                    df['total_charges'] = df['total_charges'].fillna(0)
         
-        # Scale numerical features
-        df = self._scale_numerical(df)
+        # Prepare encoders if not done yet
+        self._prepare_encoders_and_scaler(df)
+        
+        # Encode categorical features - simple mapping
+        categorical_mappings = {
+            'gender': {'Male': 0, 'Female': 1, 'male': 0, 'female': 1},
+            'contract': {
+                'Month-to-month': 0, 'One year': 1, 'Two year': 2,
+                'month-to-month': 0, 'one year': 1, 'two year': 2
+            },
+            'payment_method': {
+                'Electronic check': 0, 'Mailed check': 1, 
+                'Bank transfer': 2, 'Credit card': 3,
+                'electronic check': 0, 'mailed check': 1,
+                'bank transfer': 2, 'credit card': 3
+            },
+            'internet_service': {
+                'DSL': 0, 'Fiber optic': 1, 'No': 2,
+                'dsl': 0, 'fiber optic': 1, 'no': 2
+            }
+        }
+        
+        for col, mapping in categorical_mappings.items():
+            if col in df.columns:
+                # Map values, use 0 as default for unknown values
+                df[col] = df[col].astype(str).map(mapping).fillna(0).astype(int)
+        
+        # Scale numerical features - simple min-max approach
+        numerical_features = ['tenure', 'monthly_charges', 'total_charges']
+        for col in numerical_features:
+            if col in df.columns:
+                # Ensure numeric type
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
+        # Apply scaler if fitted
+        existing_num_cols = [col for col in numerical_features if col in df.columns]
+        if existing_num_cols and self.scaler is not None and self.is_fitted:
+            try:
+                df[existing_num_cols] = self.scaler.transform(df[existing_num_cols])
+            except Exception as e:
+                logger.warning(f"Could not scale features: {str(e)}")
+                # Continue without scaling
         
         # Ensure correct column order
         expected_features = [
@@ -305,31 +256,18 @@ class MLService:
             'contract', 'payment_method', 'internet_service'
         ]
         
-        # Select only expected features that exist
+        # Keep only expected features
         available_features = [col for col in expected_features if col in df.columns]
         
         if not available_features:
-            # Try alternative column names
-            alt_mapping = {
-                'Gender': 'gender',
-                'Tenure': 'tenure',
-                'MonthlyCharges': 'monthly_charges',
-                'TotalCharges': 'total_charges',
-                'Contract': 'contract',
-                'PaymentMethod': 'payment_method',
-                'InternetService': 'internet_service'
-            }
-            
-            for old_col, new_col in alt_mapping.items():
-                if old_col in df.columns:
-                    df = df.rename(columns={old_col: new_col})
-            
-            available_features = [col for col in expected_features if col in df.columns]
+            raise ValueError(
+                f"No expected features found. "
+                f"Expected: {expected_features}, "
+                f"Got: {list(df.columns)}"
+            )
         
-        if available_features:
-            df = df[available_features]
-        else:
-            raise ValueError(f"No expected features found in input data. Available columns: {list(df.columns)}")
+        # Reorder columns
+        df = df[available_features]
         
         return df
     
@@ -347,8 +285,11 @@ class MLService:
             raise RuntimeError("Model not loaded. Call load_model() first.")
         
         try:
-            # Preprocess input (includes all transformations)
+            # Preprocess input
             X = self.preprocess_input(data)
+            
+            logger.info(f"Preprocessed input shape: {X.shape}")
+            logger.info(f"Preprocessed columns: {list(X.columns)}")
             
             # Make predictions
             predictions = self.model.predict(X)
@@ -358,6 +299,8 @@ class MLService:
             
         except Exception as e:
             logger.error(f"Prediction failed: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise
     
     def get_model_info(self) -> Dict[str, Any]:
