@@ -292,69 +292,54 @@ def save_preprocessor(preprocessor, model_path: str):
     logger.info(f"💾 Preprocessor saved to {preprocessor_path}")
 
 def main():
-    """Main training function"""
-    # ... existing code ...
-    
+    """
+    Main training function
+    """
+    parser = argparse.ArgumentParser(
+        description="Train customer churn prediction model"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default='params.yml',
+        help='Path to configuration file'
+    )
+
+    args = parser.parse_args()
+
     try:
-        # ... existing code for loading config and data ...
-        
-        # Load configuration
+        logger.info("=" * 60)
+        logger.info("MODEL TRAINING")
+        logger.info("=" * 60)
+
         config = Config(args.config)
-        
-        # Load processed data
+
         processed_path = config.data['processed_path']
+        logger.info(f"\nLoading processed data from {processed_path}")
         df = load_data(processed_path)
-        
-        # Prepare data
+
         X_train, X_val, X_test, y_train, y_val, y_test, feature_names = prepare_data(df, config)
-        
-        # Train model
+
         trainer = ModelTrainer(config)
         trainer.train(X_train, y_train)
-        
-        # Evaluate
-        trainer.evaluate_training(X_train, y_train, X_val, y_val)
-        
-        # Feature importance
+
         trainer.get_feature_importance(feature_names)
-        
-        # Test set performance
+
         test_score = trainer.model.score(X_test, y_test)
-        logger.info(f"\n🎯 Final Test Accuracy: {test_score:.4f}")
-        
-        # Save model
+        logger.info(f"\nFinal Test Accuracy: {test_score:.4f}")
+
         model_path = config.evaluate['model_path']
         trainer.save_model(model_path)
-        
-        # ============================================
-        # NEW: Save preprocessor for API use
-        # ============================================
-        from src.preprocess import DataPreprocessor
-        
-        # Create and save preprocessor
-        logger.info("\n💾 Saving preprocessor for API...")
-        preprocessor = DataPreprocessor(config)
-        
-        # We need to fit the preprocessor on the processed data to get encoders
-        # Load raw data to fit preprocessor
-        raw_path = config.data['raw_path']
-        raw_df = load_data(raw_path)
-        _ = preprocessor.preprocess(raw_df)  # This fits the encoders
-        
-        # Save preprocessor
-        save_preprocessor(preprocessor, model_path)
-        logger.info("✅ Preprocessor saved successfully!")
-        # ============================================
-        
+
         logger.info("\n" + "=" * 60)
-        logger.info("✅ TRAINING COMPLETED SUCCESSFULLY!")
+        logger.info("TRAINING COMPLETED SUCCESSFULLY!")
         logger.info("=" * 60)
-        
+
         return 0
-        
+
     except Exception as e:
         logger.error("\n" + "=" * 60)
-        logger.error(f"❌ TRAINING FAILED: {str(e)}")
+        logger.error(f"TRAINING FAILED: {str(e)}")
         logger.error("=" * 60)
         import traceback
         traceback.print_exc()
