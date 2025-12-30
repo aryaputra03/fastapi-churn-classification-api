@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from src.config import Config
 from src.utils import load_data, logger, Timer
+from sklearn.pipeline import Pipeline
 
 class ModelTrainer:
     """
