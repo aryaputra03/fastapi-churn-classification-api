@@ -7,7 +7,6 @@ Main entrypoint: run_training(config_path: str = "params.yml", override_model_ou
 from typing import Optional
 from pathlib import Path
 import joblib
-import numpy as np
 import pandas as pd
 
 from sklearn.base import BaseEstimator, TransformerMixin
