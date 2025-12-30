@@ -178,14 +178,14 @@ jobs:
           curl -f -X POST http://localhost:8000/predict \
             -H "Content-Type: application/json" \
             -d '{
-              "customer_id": "TEST001",
+              "customer_id": "C12345",
               "gender": "Male",
               "tenure": 24,
               "monthly_charges": 75.5,
               "total_charges": 1810.0,
               "contract": "One year",
               "payment_method": "Bank transfer",
-              "internet_service": "Fiber optic",
+              "internet_service": "Fiber optic"
             }' || exit 1
           echo "All API endpoints working"
 
