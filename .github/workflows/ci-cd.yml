@@ -155,11 +155,15 @@ jobs:
           python -c "from src.utils import setup_directories, generate_sample_data; setup_directories(); generate_sample_data('data/raw/churn_data.csv', n_samples=500)"
           python -m src.preprocess
           python -m src.train
-          python -c "from src.save_preprocessor import create_and_save_preprocessor; create_and_save_preprocessor()"
+          python -c "from save_preprocessor import create_and_save_preprocessor; create_and_save_preprocessor()"
 
       - name: Initialize database
         run: |
           python -c "from src.api.database import Base, engine; Base.metadata.create_all(bind=engine); print('Database Initialized')"
+      
+      - name: Debug - Test prediction locally
+        run: |
+          python test_prediction_debug.py
       
       - name: Run API tests
         run: |
@@ -185,7 +189,7 @@ jobs:
               "monthly_charges": 75.5,
               "total_charges": 1810.0,
               "contract": "One year",
-              "payment_method": "Bank transfer",
+              "payment_method": "Bank transfer (automatic)",
               "internet_service": "Fiber optic"
             }' || exit 1
           echo "All API endpoints working"
@@ -478,8 +482,8 @@ jobs:
             echo "Waiting for API to Start..."
             sleep 15
 
-            curl -f http://localhost:8000/health || true
-            echo "Health check passes"
+            curl -f http://localhost:8000/health || exit 1
+            echo "Health check passed"
 
             curl -f -X POST http://localhost:8000/predict \
               -H "Content-Type: application/json" \
@@ -490,10 +494,10 @@ jobs:
               "monthly_charges": 75.5,
               "total_charges": 1810.0,
               "contract": "One year",
-              "payment_method": "Bank transfer",
+              "payment_method": "Bank transfer (automatic)",
               "internet_service": "Fiber optic"
               }' || exit 1
-            echo "Prediciton endpoint passed"
+            echo "Prediction endpoint passed"
 
             docker stop test-api
             docker rm test-api

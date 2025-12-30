@@ -103,13 +103,21 @@ class MLService:
             'InternetService': LabelEncoder().fit(['DSL', 'Fiber optic', 'No'])
         }
         
-        # Initialize scaler
+        # Initialize scaler with representative data
         scale_method = self.config.preprocess.get('scale_method', 'standard')
         if scale_method == 'standard':
             self.scaler = StandardScaler()
         else:
             from sklearn.preprocessing import MinMaxScaler
             self.scaler = MinMaxScaler()
+        
+        # Fit scaler on representative data
+        representative_data = np.array([
+            [0, 18.25, 18.25],      # Min values
+            [72, 118.75, 8564.75],  # Max values
+            [36, 65.0, 2500.0]      # Mid values
+        ])
+        self.scaler.fit(representative_data)
         
         logger.info("Preprocessors initialized")
     
@@ -127,63 +135,99 @@ class MLService:
         Returns:
             Preprocessed numpy array ready for prediction
         """
-        # Make a copy
-        df = data.copy()
-        
-        # Remove customer_id if present (not used in prediction)
-        if 'customer_id' in df.columns:
-            df = df.drop(columns=['customer_id'])
-        
-        # Map input columns to expected feature names
-        column_mapping = {
-            'gender': 'gender',
-            'tenure': 'tenure',
-            'monthly_charges': 'MonthlyCharges',
-            'total_charges': 'TotalCharges',
-            'contract': 'Contract',
-            'payment_method': 'PaymentMethod',
-            'internet_service': 'InternetService'
-        }
-        
-        # Rename columns
-        df = df.rename(columns=column_mapping)
-        
-        # Handle missing values in TotalCharges
-        if 'TotalCharges' in df.columns:
-            df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
-            df['TotalCharges'] = df['TotalCharges'].fillna(df['MonthlyCharges'])
-        
-        # Encode categorical variables
-        categorical_cols = ['gender', 'Contract', 'PaymentMethod', 'InternetService']
-        for col in categorical_cols:
-            if col in df.columns:
-                try:
-                    df[col] = self.label_encoders[col].transform(df[col].astype(str))
-                except Exception as e:
-                    logger.warning(f"Error encoding {col}: {str(e)}")
-                    # Fallback: use fit_transform
-                    df[col] = LabelEncoder().fit_transform(df[col].astype(str))
-        
-        # Scale numerical features
-        numerical_cols = ['tenure', 'MonthlyCharges', 'TotalCharges']
-        existing_numerical = [col for col in numerical_cols if col in df.columns]
-        
-        if existing_numerical:
-            # For prediction, we need to fit the scaler on typical ranges
-            # This is a simplified approach - ideally load the fitted scaler
-            try:
-                df[existing_numerical] = self.scaler.fit_transform(df[existing_numerical])
-            except Exception as e:
-                logger.warning(f"Scaling error: {str(e)}")
-        
-        # Ensure correct column order
-        expected_order = ['gender', 'tenure', 'MonthlyCharges', 'TotalCharges', 
-                         'Contract', 'PaymentMethod', 'InternetService']
-        
-        # Reorder columns
-        df = df[expected_order]
-        
-        return df.values
+        try:
+            # Make a copy
+            df = data.copy()
+            
+            logger.info(f"Input columns: {df.columns.tolist()}")
+            logger.info(f"Input shape: {df.shape}")
+            
+            # Remove customer_id if present (not used in prediction)
+            if 'customer_id' in df.columns:
+                df = df.drop(columns=['customer_id'])
+            
+            # Map input columns to expected feature names
+            column_mapping = {
+                'gender': 'gender',
+                'tenure': 'tenure',
+                'monthly_charges': 'MonthlyCharges',
+                'total_charges': 'TotalCharges',
+                'contract': 'Contract',
+                'payment_method': 'PaymentMethod',
+                'internet_service': 'InternetService'
+            }
+            
+            # Rename columns
+            df = df.rename(columns=column_mapping)
+            logger.info(f"After rename: {df.columns.tolist()}")
+            
+            # Handle missing values in TotalCharges
+            if 'TotalCharges' in df.columns:
+                df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
+                df['TotalCharges'] = df['TotalCharges'].fillna(df['MonthlyCharges'])
+            
+            # Normalize values before encoding
+            # PaymentMethod normalization
+            if 'PaymentMethod' in df.columns:
+                payment_mapping = {
+                    'bank transfer': 'Bank transfer (automatic)',
+                    'bank transfer (automatic)': 'Bank transfer (automatic)',
+                    'credit card': 'Credit card (automatic)',
+                    'credit card (automatic)': 'Credit card (automatic)',
+                    'electronic check': 'Electronic check',
+                    'mailed check': 'Mailed check'
+                }
+                df['PaymentMethod'] = df['PaymentMethod'].str.lower().map(payment_mapping)
+                
+                # If mapping failed, use original value
+                if df['PaymentMethod'].isna().any():
+                    logger.warning(f"Unknown payment methods: {data['payment_method'].unique()}")
+                    df['PaymentMethod'] = df['PaymentMethod'].fillna('Electronic check')
+            
+            # Encode categorical variables
+            categorical_cols = ['gender', 'Contract', 'PaymentMethod', 'InternetService']
+            for col in categorical_cols:
+                if col in df.columns:
+                    try:
+                        original_values = df[col].unique()
+                        logger.info(f"Encoding {col}: {original_values}")
+                        
+                        df[col] = self.label_encoders[col].transform(df[col].astype(str))
+                        logger.info(f"Encoded {col} successfully")
+                    except Exception as e:
+                        logger.error(f"Error encoding {col}: {str(e)}")
+                        logger.error(f"Values: {df[col].unique()}")
+                        logger.error(f"Expected classes: {self.label_encoders[col].classes_}")
+                        raise
+            
+            # Scale numerical features
+            numerical_cols = ['tenure', 'MonthlyCharges', 'TotalCharges']
+            existing_numerical = [col for col in numerical_cols if col in df.columns]
+            
+            if existing_numerical and self.scaler is not None:
+                logger.info(f"Scaling numerical features: {existing_numerical}")
+                df[existing_numerical] = self.scaler.transform(df[existing_numerical])
+            
+            # Ensure correct column order
+            expected_order = ['gender', 'tenure', 'MonthlyCharges', 'TotalCharges', 
+                             'Contract', 'PaymentMethod', 'InternetService']
+            
+            # Check if all columns exist
+            missing_cols = set(expected_order) - set(df.columns)
+            if missing_cols:
+                raise ValueError(f"Missing columns after preprocessing: {missing_cols}")
+            
+            # Reorder columns
+            df = df[expected_order]
+            logger.info(f"Final preprocessed shape: {df.shape}")
+            logger.info(f"Sample values: {df.iloc[0].tolist()}")
+            
+            return df.values
+            
+        except Exception as e:
+            logger.error(f"Preprocessing failed: {str(e)}")
+            logger.error(f"DataFrame info: {df.head() if 'df' in locals() else 'N/A'}")
+            raise
     
     def predict(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -199,17 +243,25 @@ class MLService:
             raise RuntimeError("Model not loaded. Call load_model() first.")
         
         try:
+            logger.info(f"Starting prediction for {len(data)} samples")
+            
             # Preprocess input
             X = self.preprocess_input(data)
+            logger.info(f"Preprocessed data shape: {X.shape}")
             
             # Make predictions
             predictions = self.model.predict(X)
             probabilities = self.model.predict_proba(X)
             
+            logger.info(f"Predictions: {predictions}")
+            logger.info(f"Probabilities shape: {probabilities.shape}")
+            
             return predictions, probabilities
             
         except Exception as e:
             logger.error(f"Prediction failed: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise
     
     def get_model_info(self) -> Dict[str, Any]:
