@@ -1,40 +1,57 @@
-"""
-ML Service for Loading, Training, and Running Model
-Integrated with training pipeline from train_pipeline.py
-"""
 import joblib
 import pandas as pd
+import numpy as np
 from pathlib import Path
-from typing import Dict, Any, Optional
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.pipeline import Pipeline
-
+from typing import Tuple, Dict, Any
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from src.config import Config
-from src.preprocess import DataPreprocessor
-from src.train import ModelTrainer
-from src.utils import load_data, logger, Timer
-from src.pipelines.train_pipeline import PreprocessorWrapper
+from src.utils import logger
 
 
 class MLService:
     """
-    Service class for ML model operations including training and prediction
+    Service class for ML model operations with complete preprocessing pipeline
     """
-    def __init__(self, config_path: str = "params.yml", model_path: str = None):
+    
+    def __init__(self, model_path: str = None):
         """
         Initialize ML service
         
         Args:
-            config_path: Path to configuration file
             model_path: Path to model file
         """
         self.model = None
         self.model_path = model_path
-        self.config = Config(config_path)
-        self.config.validate()
+        self.config = None
         self.model_info = {}
-        self.pipeline = None
-
+        
+        # Preprocessing components
+        self.label_encoders = {}
+        self.scaler = None
+        self._setup_preprocessors()
+        
+        # Try to load model on initialization
+        try:
+            self.load_model()
+        except Exception as e:
+            logger.warning(f"Could not load model on init: {str(e)}")
+    
+    def _setup_preprocessors(self):
+        """Initialize preprocessing components"""
+        try:
+            self.config = Config("params.yaml")
+            
+            # Initialize scaler based on config
+            scale_method = self.config.preprocess.get('scale_method', 'standard')
+            if scale_method == 'standard':
+                self.scaler = StandardScaler()
+            else:
+                self.scaler = StandardScaler()
+                
+        except Exception as e:
+            logger.warning(f"Could not load config for preprocessors: {str(e)}")
+            self.scaler = StandardScaler()
+    
     def load_model(self, model_path: str = None) -> None:
         """
         Load ML model from disk
@@ -43,327 +60,326 @@ class MLService:
             model_path: Optional path to model file
         """
         try:
+            # Load config
+            if self.config is None:
+                self.config = Config("params.yaml")
+            
+            # Determine model path
             if model_path is None:
-                model_path = self.model_path or self.config.evaluate.get('model_path')
+                model_path = self.model_path or self.config.evaluate['model_path']
             
             model_path = Path(model_path)
+            
             if not model_path.exists():
                 raise FileNotFoundError(f"Model file not found: {model_path}")
             
+            # Load model
             logger.info(f"Loading model from {model_path}")
-            self.pipeline = joblib.load(model_path)
-            self.model = self.pipeline  # For backward compatibility
+            self.model = joblib.load(model_path)
             self.model_path = str(model_path)
             
+            # Store model info
             self.model_info = {
-                "model_type": type(self.pipeline.named_steps.get('model', self.pipeline)).__name__,
+                "model_type": type(self.model).__name__,
                 "model_version": "1.0.0",
                 "model_path": str(model_path),
                 "loaded_at": pd.Timestamp.now().isoformat()
             }
-
-            logger.info("Model loaded successfully")
-        
+            
+            logger.info("✅ Model loaded successfully")
+            
         except Exception as e:
             logger.error(f"Failed to load model: {str(e)}")
             raise
     
     def is_model_loaded(self) -> bool:
         """Check if model is loaded"""
-        return self.pipeline is not None
-
-    def train_model(self, override_model_output: Optional[str] = None) -> Dict[str, Any]:
+        return self.model is not None
+    
+    def _handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Execute the training pipeline
+        Handle missing values in input data
         
         Args:
-            override_model_output: Optional path to save trained model
+            df: Input dataframe
             
         Returns:
-            Dictionary containing training metrics
+            DataFrame with handled missing values
         """
-        try:
-            logger.info("=" * 60)
-            logger.info("TRAINING PIPELINE")
-            logger.info("=" * 60)
-
-            raw_path = self.config.data.get('raw_path')
-            if raw_path is None:
-                raise ValueError("raw_path not set in config.data")
+        df = df.copy()
+        
+        # Convert TotalCharges to numeric if present
+        if 'TotalCharges' in df.columns or 'total_charges' in df.columns:
+            col_name = 'TotalCharges' if 'TotalCharges' in df.columns else 'total_charges'
+            df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
+        
+        # Fill missing values
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 0:
+            df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
+        
+        categorical_cols = df.select_dtypes(include=['object']).columns
+        if len(categorical_cols) > 0:
+            for col in categorical_cols:
+                df[col] = df[col].fillna(df[col].mode()[0] if len(df[col].mode()) > 0 else 'Unknown')
+        
+        return df
+    
+    def _encode_categorical(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Encode categorical features
+        
+        Args:
+            df: Input dataframe
             
-            logger.info(f"Loading raw data from: {raw_path}")
-            df_raw = load_data(raw_path)
-
-            logger.info("Fitting DataPreprocessor to raw data (to obtain encoded target)")
-            preprocessor = DataPreprocessor(self.config)
-            df_processed = preprocessor.preprocess(df_raw.copy())
+        Returns:
+            DataFrame with encoded categorical features
+        """
+        df = df.copy()
+        
+        categorical_features = self.config.preprocess.get('categorical_features', [])
+        
+        for col in categorical_features:
+            # Handle both lowercase and original case column names
+            actual_col = None
+            if col in df.columns:
+                actual_col = col
+            elif col.lower() in df.columns:
+                actual_col = col.lower()
+            elif col.replace('_', '').lower() in [c.lower() for c in df.columns]:
+                # Find matching column ignoring case and underscores
+                for df_col in df.columns:
+                    if df_col.replace('_', '').lower() == col.replace('_', '').lower():
+                        actual_col = df_col
+                        break
             
-            target_col = self.config.preprocess.get("target")
-            if target_col is None or target_col not in df_processed.columns:
-                raise ValueError("Target column missing after preprocessing")
+            if actual_col is not None:
+                # Initialize encoder if not exists
+                if col not in self.label_encoders:
+                    self.label_encoders[col] = LabelEncoder()
+                    # Fit on all possible values for this feature
+                    # For new/unseen values, we'll handle them separately
+                
+                try:
+                    # Get unique values
+                    unique_vals = df[actual_col].unique()
+                    
+                    # Fit encoder if not fitted or update with new values
+                    if not hasattr(self.label_encoders[col], 'classes_'):
+                        self.label_encoders[col].fit(df[actual_col].astype(str))
+                    else:
+                        # Handle unseen categories
+                        existing_classes = set(self.label_encoders[col].classes_)
+                        new_classes = set(unique_vals.astype(str)) - existing_classes
+                        
+                        if new_classes:
+                            # Add new classes to encoder
+                            all_classes = list(existing_classes) + list(new_classes)
+                            self.label_encoders[col].classes_ = np.array(all_classes)
+                    
+                    # Transform the column
+                    df[actual_col] = self.label_encoders[col].transform(df[actual_col].astype(str))
+                    
+                except Exception as e:
+                    logger.warning(f"Could not encode {actual_col}: {str(e)}")
+        
+        return df
+    
+    def _scale_numerical(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Scale numerical features
+        
+        Args:
+            df: Input dataframe
             
-            y = df_processed[target_col].values
-
-            pre_wrapper = PreprocessorWrapper(
-                config=self.config, 
-                fitted_preprocessor=preprocessor
-            )
-
-            trainer = ModelTrainer(self.config)
-            base_model = trainer.initialize_model()
-
-            self.pipeline = Pipeline(steps=[
-                ("preprocess", pre_wrapper),
-                ("model", base_model)
-            ])
-
-            test_size = self.config.data.get('test_size', 0.2)
-            val_size = self.config.data.get('val_size', 0.1)
-            random_state = self.config.data.get('random_state', 42)
-
-            logger.info("Splitting data for train/test (stratified on encoded target)")
-            x_train_raw, x_test_raw, y_train, y_test = train_test_split(
-                df_raw,
-                y,
-                test_size=test_size,
-                random_state=random_state,
-                stratify=y
-            )
-
-            if val_size and val_size > 0:
-                val_ratio = val_size / (1 - test_size)
-                x_train_raw, x_val_raw, y_train, y_val = train_test_split(
-                    x_train_raw,
-                    y_train,
-                    test_size=val_ratio,
-                    random_state=random_state,
-                    stratify=y_train
-                )
+        Returns:
+            DataFrame with scaled numerical features
+        """
+        df = df.copy()
+        
+        numerical_features = self.config.preprocess.get('numerical_features', [])
+        
+        # Find actual column names (handle case variations)
+        existing_cols = []
+        for col in numerical_features:
+            if col in df.columns:
+                existing_cols.append(col)
+            elif col.lower() in df.columns:
+                existing_cols.append(col.lower())
             else:
-                x_val_raw = None
-                y_val = None
-            
-            logger.info("Training pipeline...")
-            with Timer("Pipeline fit"):
-                self.pipeline.fit(x_train_raw, y_train)
-            
-            logger.info("Evaluating model")
-            metrics = {}
-            
-            train_score = self.pipeline.score(x_train_raw, y_train)
-            logger.info(f"Training Score: {train_score:.4f}")
-            metrics['train_score'] = train_score
-
-            if x_val_raw is not None:
-                val_score = self.pipeline.score(x_val_raw, y_val)
-                logger.info(f"Validation Score: {val_score:.4f}")
-                metrics['val_score'] = val_score
-            
-            test_score = self.pipeline.score(x_test_raw, y_test)
-            logger.info(f"Test Score: {test_score:.4f}")
-            metrics['test_score'] = test_score
-            
+                # Try to find column ignoring case and underscores
+                for df_col in df.columns:
+                    if df_col.replace('_', '').lower() == col.replace('_', '').lower():
+                        existing_cols.append(df_col)
+                        break
+        
+        if existing_cols:
             try:
-                cv = self.config.train.get('cv', 5)
-                if cv and cv > 1:
-                    logger.info(f"Running cross-validation (cv={cv})")
-                    cv_scores = cross_val_score(self.pipeline, df_raw, y, cv=cv)
-                    cv_mean = cv_scores.mean()
-                    cv_std = cv_scores.std()
-                    logger.info(f"CV Mean: {cv_mean:.4f} (+/- {cv_std * 2:.4f})")
-                    metrics['cv_mean'] = cv_mean
-                    metrics['cv_std'] = cv_std
+                # Fit scaler if not fitted
+                if not hasattr(self.scaler, 'mean_'):
+                    self.scaler.fit(df[existing_cols])
+                
+                # Transform
+                df[existing_cols] = self.scaler.transform(df[existing_cols])
+                
             except Exception as e:
-                logger.warning(f"Cross-validation failed: {e}")
-
-            model_output = override_model_output or self.config.evaluate.get('model_path')
-            if model_output is None:
-                raise ValueError("evaluate.model_path must be set in config or provided as override")    
-
-            model_output_path = Path(model_output)
-            model_output_path.parent.mkdir(parents=True, exist_ok=True)
-            joblib.dump(self.pipeline, model_output_path)
-            logger.info(f"Pipeline saved to: {model_output_path}")
+                logger.warning(f"Could not scale numerical features: {str(e)}")
+        
+        return df
+    
+    def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Normalize column names to match expected format
+        
+        Args:
+            df: Input dataframe
             
-            self.model_path = str(model_output_path)
-            self.model = self.pipeline
-
-            try:
-                feature_names = pre_wrapper.feature_names_
-                if feature_names:
-                    features_path = model_output_path.with_suffix(".features.txt")
-                    with open(features_path, 'w') as f:
-                        for feat in feature_names:
-                            f.write(f"{feat}\n")
-                    logger.info(f"Feature names saved to: {features_path}")
-                    metrics['feature_count'] = len(feature_names)
-            except Exception:
-                logger.debug("Could not save features list")
-
-            self.model_info = {
-                "model_type": type(base_model).__name__,
-                "model_version": "1.0.0",
-                "model_path": str(model_output_path),
-                "trained_at": pd.Timestamp.now().isoformat(),
-                "metrics": metrics
+        Returns:
+            DataFrame with normalized column names
+        """
+        df = df.copy()
+        
+        # Mapping from possible input names to expected names
+        column_mapping = {
+            'customerid': 'customer_id',
+            'customer_id': 'customer_id',
+            'totalcharges': 'total_charges',
+            'total_charges': 'total_charges',
+            'monthlycharges': 'monthly_charges',
+            'monthly_charges': 'monthly_charges',
+            'paymentmethod': 'payment_method',
+            'payment_method': 'payment_method',
+            'internetservice': 'internet_service',
+            'internet_service': 'internet_service',
+        }
+        
+        # Rename columns
+        rename_dict = {}
+        for col in df.columns:
+            col_lower = col.lower().replace(' ', '_')
+            if col_lower in column_mapping:
+                rename_dict[col] = column_mapping[col_lower]
+            elif col.lower() != col:
+                rename_dict[col] = col.lower()
+        
+        if rename_dict:
+            df = df.rename(columns=rename_dict)
+        
+        return df
+    
+    def preprocess_input(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Preprocess input data to match model expectations
+        Complete preprocessing pipeline including encoding and scaling
+        
+        Args:
+            data: Input dataframe
+            
+        Returns:
+            Preprocessed dataframe
+        """
+        # Make a copy
+        df = data.copy()
+        
+        # Normalize column names
+        df = self._normalize_column_names(df)
+        
+        # Handle missing values
+        df = self._handle_missing_values(df)
+        
+        # Remove customer_id if present (not used in prediction)
+        customer_id_cols = ['customer_id', 'customerID', 'customerid']
+        for col in customer_id_cols:
+            if col in df.columns:
+                df = df.drop(columns=[col])
+        
+        # Encode categorical features
+        df = self._encode_categorical(df)
+        
+        # Scale numerical features
+        df = self._scale_numerical(df)
+        
+        # Ensure correct column order
+        expected_features = [
+            'gender', 'tenure', 'monthly_charges', 'total_charges',
+            'contract', 'payment_method', 'internet_service'
+        ]
+        
+        # Select only expected features that exist
+        available_features = [col for col in expected_features if col in df.columns]
+        
+        if not available_features:
+            # Try alternative column names
+            alt_mapping = {
+                'Gender': 'gender',
+                'Tenure': 'tenure',
+                'MonthlyCharges': 'monthly_charges',
+                'TotalCharges': 'total_charges',
+                'Contract': 'contract',
+                'PaymentMethod': 'payment_method',
+                'InternetService': 'internet_service'
             }
-
-            logger.info("\nTRAINING PIPELINE COMPLETED SUCCESSFULLY")
-            return metrics
+            
+            for old_col, new_col in alt_mapping.items():
+                if old_col in df.columns:
+                    df = df.rename(columns={old_col: new_col})
+            
+            available_features = [col for col in expected_features if col in df.columns]
+        
+        if available_features:
+            df = df[available_features]
+        else:
+            raise ValueError(f"No expected features found in input data. Available columns: {list(df.columns)}")
+        
+        return df
+    
+    def predict(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Make predictions
+        
+        Args:
+            data: Input dataframe
+            
+        Returns:
+            predictions, probabilities
+        """
+        if not self.is_model_loaded():
+            raise RuntimeError("Model not loaded. Call load_model() first.")
+        
+        try:
+            # Preprocess input (includes all transformations)
+            X = self.preprocess_input(data)
+            
+            # Make predictions
+            predictions = self.model.predict(X)
+            probabilities = self.model.predict_proba(X)
+            
+            return predictions, probabilities
             
         except Exception as e:
-            logger.error("\nTRAINING PIPELINE FAILED")
-            logger.error(f"Error: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Prediction failed: {str(e)}")
             raise
-
-    def predict(self, data: pd.DataFrame):
-        if not self.is_model_loaded():
-            raise RuntimeError("Model not loaded")
-
-        try:
-            df = data.copy()
-
-            # optional: drop id if not used in training
-            if "customer_id" in df.columns:
-                df = df.drop(columns=["customer_id"])
-
-            preds = self.model.predict(df)
-            probs = self.model.predict_proba(df)
-
-            return preds, probs
-
-        except Exception:
-            logger.exception("Prediction failed")
-            raise
-
-    
-    def predict_single(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Make prediction for a single sample
-        
-        Args:
-            data: Dictionary containing feature values
-            
-        Returns:
-            Dictionary with prediction and probability
-        """
-        df = pd.DataFrame([data])
-        predictions, probabilities = self.predict(df)
-        
-        return {
-            "prediction": int(predictions[0]),
-            "probability": float(probabilities[0][1]), 
-            "probabilities": probabilities[0].tolist()
-        }
     
     def get_model_info(self) -> Dict[str, Any]:
         """Get model information"""
         if not self.is_model_loaded():
             return {
-                "status": "not_loaded",
                 "model_type": "Not loaded",
                 "model_version": "N/A",
                 "features": [],
                 "trained_at": None,
-                "metrics": {}
+                "accuracy": None
             }
         
+        # Try to get feature names
         features = []
-        try:
-            if hasattr(self.pipeline.named_steps['preprocess'], 'feature_names_'):
-                features = self.pipeline.named_steps['preprocess'].feature_names_
-        except Exception:
-            pass
+        if hasattr(self.model, 'feature_names_in_'):
+            features = self.model.feature_names_in_.tolist()
         
         return {
-            "status": "loaded",
             "model_type": self.model_info.get("model_type", "Unknown"),
             "model_version": self.model_info.get("model_version", "1.0.0"),
-            "model_path": self.model_path,
             "features": features,
-            "trained_at": self.model_info.get("trained_at"),
-            "metrics": self.model_info.get("metrics", {})
+            "trained_at": self.model_info.get("loaded_at"),
+            "accuracy": None  # Could load from metrics.json
         }
-    
-    def evaluate(self, test_data_path: str = None) -> Dict[str, float]:
-        """
-        Evaluate model on test data
-        
-        Args:
-            test_data_path: Optional path to test data
-            
-        Returns:
-            Dictionary containing evaluation metrics
-        """
-        if not self.is_model_loaded():
-            raise RuntimeError("Model not loaded. Call load_model() or train_model() first.")
-        
-        try:
-            if test_data_path is None:
-                test_data_path = self.config.data.get('raw_path')
-            
-            logger.info(f"Loading test data from: {test_data_path}")
-            df_raw = load_data(test_data_path)
-            
-            preprocessor = DataPreprocessor(self.config)
-            df_processed = preprocessor.preprocess(df_raw.copy())
-            
-            target_col = self.config.preprocess.get("target")
-            y_true = df_processed[target_col].values
-
-            predictions, _ = self.predict(df_raw)
-            
-            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-            
-            metrics = {
-                "accuracy": float(accuracy_score(y_true, predictions)),
-                "precision": float(precision_score(y_true, predictions, average='weighted')),
-                "recall": float(recall_score(y_true, predictions, average='weighted')),
-                "f1_score": float(f1_score(y_true, predictions, average='weighted'))
-            }
-            
-            logger.info("Evaluation Metrics:")
-            for metric, value in metrics.items():
-                logger.info(f"  {metric}: {value:.4f}")
-            
-            return metrics
-            
-        except Exception as e:
-            logger.error(f"Evaluation failed: {str(e)}")
-            raise
-
-
-def run_training(config_path: str = "params.yml", override_model_output: Optional[str] = None) -> int:
-    """
-    Execute the training pipeline (standalone function)
-    
-    Args:
-        config_path: Path to configuration file
-        override_model_output: Optional path to save trained model
-        
-    Returns:
-        Exit code (0 for success, 1 for failure)
-    """
-    try:
-        service = MLService(config_path=config_path)
-        service.train_model(override_model_output=override_model_output)
-        return 0
-    except Exception:
-        return 1
-
-
-if __name__ == "__main__":
-    import sys
-    
-    service = MLService(config_path="params.yml")
-    
-    print("Training model...")
-    metrics = service.train_model()
-    print(f"\nTraining completed with metrics: {metrics}")
-    
-    info = service.get_model_info()
-    print(f"\nModel Info: {info}")
-    
-    sys.exit(0)
