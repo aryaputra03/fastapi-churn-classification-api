@@ -4,9 +4,8 @@ Integrated with training pipeline from train_pipeline.py
 """
 import joblib
 import pandas as pd
-import numpy as np
 from pathlib import Path
-from typing import Tuple, Dict, Any, Optional
+from typing import Dict, Any, Optional
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.pipeline import Pipeline
 
@@ -219,28 +218,26 @@ class MLService:
             traceback.print_exc()
             raise
 
-    def predict(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Make predictions using the loaded pipeline
-        
-        Args:
-            data: Input dataframe (raw format)
-            
-        Returns:
-            Tuple of (predictions, probabilities)
-        """
+    def predict(self, data: pd.DataFrame):
         if not self.is_model_loaded():
-            raise RuntimeError("Model not loaded. Call load_model() or train_model() first.")
-        
-        try:
-            predictions = self.pipeline.predict(data)
-            probabilities = self.pipeline.predict_proba(data)
+            raise RuntimeError("Model not loaded")
 
-            return predictions, probabilities
-        
+        try:
+            df = data.copy()
+
+            # optional: drop id if not used in training
+            if "customer_id" in df.columns:
+                df = df.drop(columns=["customer_id"])
+
+            preds = self.model.predict(df)
+            probs = self.model.predict_proba(df)
+
+            return preds, probs
+
         except Exception as e:
-            logger.error(f"Prediction failed: {str(e)}")
+            logger.exception("Prediction failed")
             raise
+
     
     def predict_single(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
