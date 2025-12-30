@@ -155,7 +155,7 @@ jobs:
           python -c "from src.utils import setup_directories, generate_sample_data; setup_directories(); generate_sample_data('data/raw/churn_data.csv', n_samples=500)"
           python -m src.preprocess
           python -m src.train
-          python -c "from save_preprocessor import create_and_save_preprocessor; create_and_save_preprocessor()"
+          python -c "from src.save_preprocessor import create_and_save_preprocessor; create_and_save_preprocessor()"
 
       - name: Initialize database
         run: |
