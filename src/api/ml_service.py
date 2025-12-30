@@ -234,7 +234,7 @@ class MLService:
 
             return preds, probs
 
-        except Exception as e:
+        except Exception:
             logger.exception("Prediction failed")
             raise
 
@@ -313,7 +313,7 @@ class MLService:
             target_col = self.config.preprocess.get("target")
             y_true = df_processed[target_col].values
 
-            predictions, probabilities = self.predict(df_raw)
+            predictions, _ = self.predict(df_raw)
             
             from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
             
