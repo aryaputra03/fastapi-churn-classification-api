@@ -277,7 +277,7 @@ def prepare_data(df: pd.DataFrame, config: Config):
 
 def main():
     """
-    Main training function
+    Main training function - wraps training_pipeline
     """
     parser = argparse.ArgumentParser(
         description="Train customer churn prediction model"
@@ -288,38 +288,27 @@ def main():
         default='params.yml',
         help='Path to configuration file'
     )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help='Override model output path'
+    )
 
     args = parser.parse_args()
 
     try:
         logger.info("=" * 60)
-        logger.info("MODEL TRAINING")
+        logger.info("MODEL TRAINING (via Pipeline)")
         logger.info("=" * 60)
-
-        config = Config(args.config)
-
-        processed_path = config.data['processed_path']
-        logger.info(f"\nLoading processed data from {processed_path}")
-        df = load_data(processed_path)
-
-        X_train, X_val, X_test, y_train, y_val, y_test, feature_names = prepare_data(df, config)
-
-        trainer = ModelTrainer(config)
-        trainer.train(X_train, y_train)
-
-        trainer.get_feature_importance(feature_names)
-
-        test_score = trainer.model.score(X_test, y_test)
-        logger.info(f"\nFinal Test Accuracy: {test_score:.4f}")
-
-        model_path = config.evaluate['model_path']
-        trainer.save_model(model_path)
-
-        logger.info("\n" + "=" * 60)
-        logger.info("TRAINING COMPLETED SUCCESSFULLY!")
-        logger.info("=" * 60)
-
-        return 0
+        
+        # Use training_pipeline which creates sklearn Pipeline
+        exit_code = run_training(
+            config_path=args.config,
+            override_model_output=args.output
+        )
+        
+        return exit_code
 
     except Exception as e:
         logger.error("\n" + "=" * 60)
@@ -329,5 +318,6 @@ def main():
         traceback.print_exc()
         return 1
 
-if  __name__ == '__main__':
+
+if __name__ == '__main__':
     sys.exit(main())
