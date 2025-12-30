@@ -13,8 +13,8 @@ from sklearn.pipeline import Pipeline
 from src.config import Config
 from src.preprocess import DataPreprocessor
 from src.train import ModelTrainer
-from src.utils import load_data, save_data, logger, Timer
-from train_pipeline import PreprocessorWrapper
+from src.utils import load_data, logger, Timer
+from src.pipelines.train_pipeline import PreprocessorWrapper
 
 
 class MLService:
