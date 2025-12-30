@@ -26,8 +26,12 @@ def create_and_save_preprocessor():
         logger.info(f"Loading processed data from {processed_path}")
         df = load_data(processed_path)
         
-        # Get the numerical columns that were scaled during training
+        # Get the numerical columns that were scaled during training (including engineered features)
         numerical_cols = config.preprocess.get('numerical_features', ['tenure', 'MonthlyCharges', 'TotalCharges'])
+        
+        # Add engineered numerical feature
+        if 'charge_ratio' in df.columns:
+            numerical_cols.append('charge_ratio')
         
         # Fit scaler on the actual training data
         scale_method = config.preprocess.get('scale_method', 'standard')
@@ -66,12 +70,13 @@ def create_and_save_preprocessor():
         representative_data = pd.DataFrame({
             'tenure': [0, 72, 36],
             'MonthlyCharges': [18.25, 118.75, 65.0],
-            'TotalCharges': [18.25, 8564.75, 2500.0]
+            'TotalCharges': [18.25, 8564.75, 2500.0],
+            'charge_ratio': [0.5, 100, 40]
         })
         scaler.fit(representative_data)
     
     # Initialize label encoders with expected categories
-    # These should match the categories used during training
+    # These should match the categories used during training (including engineered features)
     label_encoders = {
         'gender': LabelEncoder().fit(['Female', 'Male']),
         'Contract': LabelEncoder().fit(['Month-to-month', 'One year', 'Two year']),
@@ -81,7 +86,8 @@ def create_and_save_preprocessor():
             'Electronic check',
             'Mailed check'
         ]),
-        'InternetService': LabelEncoder().fit(['DSL', 'Fiber optic', 'No'])
+        'InternetService': LabelEncoder().fit(['DSL', 'Fiber optic', 'No']),
+        'tenure_group': LabelEncoder().fit(['0-1yr', '1-2yr', '2-4yr', '4-6yr'])
     }
     
     logger.info("Label encoders created:")

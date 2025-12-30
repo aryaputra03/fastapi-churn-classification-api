@@ -100,10 +100,11 @@ class MLService:
                 'Electronic check',
                 'Mailed check'
             ]),
-            'InternetService': LabelEncoder().fit(['DSL', 'Fiber optic', 'No'])
+            'InternetService': LabelEncoder().fit(['DSL', 'Fiber optic', 'No']),
+            'tenure_group': LabelEncoder().fit(['0-1yr', '1-2yr', '2-4yr', '4-6yr'])
         }
         
-        # Initialize scaler with representative data
+        # Initialize scaler with representative data (including charge_ratio)
         scale_method = self.config.preprocess.get('scale_method', 'standard')
         if scale_method == 'standard':
             self.scaler = StandardScaler()
@@ -111,11 +112,11 @@ class MLService:
             from sklearn.preprocessing import MinMaxScaler
             self.scaler = MinMaxScaler()
         
-        # Fit scaler on representative data
+        # Fit scaler on representative data (4 numerical features now)
         representative_data = np.array([
-            [0, 18.25, 18.25],      # Min values
-            [72, 118.75, 8564.75],  # Max values
-            [36, 65.0, 2500.0]      # Mid values
+            [0, 18.25, 18.25, 0.5],      # Min values + low ratio
+            [72, 118.75, 8564.75, 100],  # Max values + high ratio
+            [36, 65.0, 2500.0, 40]       # Mid values + mid ratio
         ])
         self.scaler.fit(representative_data)
         
@@ -166,6 +167,23 @@ class MLService:
                 df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
                 df['TotalCharges'] = df['TotalCharges'].fillna(df['MonthlyCharges'])
             
+            # Feature Engineering (must match training pipeline)
+            logger.info("Creating engineered features...")
+            
+            # Create tenure_group
+            if 'tenure' in df.columns:
+                df['tenure_group'] = pd.cut(
+                    df['tenure'],
+                    bins=[0, 12, 24, 48, 72],
+                    labels=['0-1yr', '1-2yr', '2-4yr', '4-6yr']
+                )
+                logger.info(f"Created tenure_group: {df['tenure_group'].unique()}")
+            
+            # Create charge_ratio
+            if 'MonthlyCharges' in df.columns and 'TotalCharges' in df.columns:
+                df['charge_ratio'] = df['TotalCharges'] / (df['MonthlyCharges'] + 1e-6)
+                logger.info(f"Created charge_ratio (sample): {df['charge_ratio'].iloc[0]:.4f}")
+            
             # Normalize values before encoding
             # PaymentMethod normalization
             if 'PaymentMethod' in df.columns:
@@ -184,8 +202,8 @@ class MLService:
                     logger.warning(f"Unknown payment methods: {data['payment_method'].unique()}")
                     df['PaymentMethod'] = df['PaymentMethod'].fillna('Electronic check')
             
-            # Encode categorical variables
-            categorical_cols = ['gender', 'Contract', 'PaymentMethod', 'InternetService']
+            # Encode categorical variables (including tenure_group)
+            categorical_cols = ['gender', 'Contract', 'PaymentMethod', 'InternetService', 'tenure_group']
             for col in categorical_cols:
                 if col in df.columns:
                     try:
@@ -200,17 +218,18 @@ class MLService:
                         logger.error(f"Expected classes: {self.label_encoders[col].classes_}")
                         raise
             
-            # Scale numerical features
-            numerical_cols = ['tenure', 'MonthlyCharges', 'TotalCharges']
+            # Scale numerical features (including charge_ratio)
+            numerical_cols = ['tenure', 'MonthlyCharges', 'TotalCharges', 'charge_ratio']
             existing_numerical = [col for col in numerical_cols if col in df.columns]
             
             if existing_numerical and self.scaler is not None:
                 logger.info(f"Scaling numerical features: {existing_numerical}")
                 df[existing_numerical] = self.scaler.transform(df[existing_numerical])
             
-            # Ensure correct column order
+            # Ensure correct column order (must match training)
             expected_order = ['gender', 'tenure', 'MonthlyCharges', 'TotalCharges', 
-                             'Contract', 'PaymentMethod', 'InternetService']
+                             'Contract', 'PaymentMethod', 'InternetService',
+                             'tenure_group', 'charge_ratio']
             
             # Check if all columns exist
             missing_cols = set(expected_order) - set(df.columns)
@@ -281,7 +300,8 @@ class MLService:
             features = self.model.feature_names_in_.tolist()
         else:
             features = ['gender', 'tenure', 'MonthlyCharges', 'TotalCharges', 
-                       'Contract', 'PaymentMethod', 'InternetService']
+                       'Contract', 'PaymentMethod', 'InternetService',
+                       'tenure_group', 'charge_ratio']
         
         return {
             "model_type": self.model_info.get("model_type", "Unknown"),
