@@ -18,7 +18,8 @@ import argparse
 import sys
 from pathlib import Path
 from src.config import Config
-from src.utils import load_data, logger, Timer
+from src.utils import logger, Timer
+from src.pipelines.train_pipeline import run_training
 
 class ModelTrainer:
     """
