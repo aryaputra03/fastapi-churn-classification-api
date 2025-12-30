@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from typing import Tuple, Dict, Any
+from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler
 from src.config import Config
 from src.utils import logger
 
@@ -10,7 +11,7 @@ from src.utils import logger
 class MLService:
     """
     Service class for ML model operations
-    Supports both standalone models and sklearn Pipeline objects
+    Uses the SAME preprocessing as DataPreprocessor from preprocess.py
     """
     
     def __init__(self, model_path: str = None):
@@ -24,13 +25,38 @@ class MLService:
         self.model_path = model_path
         self.config = None
         self.model_info = {}
-        self.is_pipeline = False
+        
+        # Preprocessing components - match preprocess.py exactly
+        self.label_encoders = {}
+        self.scaler = None
+        self.feature_names = []
         
         # Try to load model on initialization
         try:
             self.load_model()
+            self._setup_preprocessors()
         except Exception as e:
             logger.warning(f"Could not load model on init: {str(e)}")
+    
+    def _setup_preprocessors(self):
+        """Initialize preprocessing components - match preprocess.py"""
+        try:
+            if self.config is None:
+                self.config = Config("params.yaml")
+            
+            # Initialize scaler based on config - EXACTLY like preprocess.py
+            scale_method = self.config.preprocess.get('scale_method', 'standard')
+            if scale_method == 'standard':
+                self.scaler = StandardScaler()
+            elif scale_method == 'minmax':
+                self.scaler = MinMaxScaler()
+            else:
+                logger.warning(f"Unknown scaling method {scale_method}, defaulting to standard scaler.")
+                self.scaler = StandardScaler()
+                
+        except Exception as e:
+            logger.warning(f"Could not load config for preprocessors: {str(e)}")
+            self.scaler = StandardScaler()
     
     def load_model(self, model_path: str = None) -> None:
         """
@@ -58,24 +84,12 @@ class MLService:
             self.model = joblib.load(model_path)
             self.model_path = str(model_path)
             
-            # Check if it's a Pipeline
-            from sklearn.pipeline import Pipeline
-            self.is_pipeline = isinstance(self.model, Pipeline)
-            
-            if self.is_pipeline:
-                logger.info("Detected sklearn Pipeline - preprocessing will be handled by pipeline")
-                model_type = type(self.model.named_steps.get('model', self.model)).__name__
-            else:
-                logger.info("Detected standalone model")
-                model_type = type(self.model).__name__
-            
             # Store model info
             self.model_info = {
-                "model_type": model_type,
+                "model_type": type(self.model).__name__,
                 "model_version": "1.0.0",
                 "model_path": str(model_path),
-                "loaded_at": pd.Timestamp.now().isoformat(),
-                "is_pipeline": self.is_pipeline
+                "loaded_at": pd.Timestamp.now().isoformat()
             }
             
             logger.info("✅ Model loaded successfully")
@@ -88,80 +102,213 @@ class MLService:
         """Check if model is loaded"""
         return self.model is not None
     
-    def _normalize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
+    def handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Normalize column names to match expected format
+        Handle missing values - SAME as preprocess.py
         
         Args:
             df: Input dataframe
             
         Returns:
-            DataFrame with normalized column names
+            DataFrame with handled missing values
         """
-        df = df.copy()
+        strategy = self.config.preprocess.get('handling_missing', 'median')
+        logger.info(f"Handling missing values using strategy: {strategy}")
+
+        missing_before = df.isnull().sum().sum()
+        if missing_before > 0:
+            logger.info(f"Total missing values before: {missing_before}")
+
+        # Convert TotalCharges to numeric - SAME as preprocess.py
+        if 'TotalCharges' in df.columns:
+            df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
         
-        # Create mapping - keep original case variations for Pipeline compatibility
-        column_mapping = {}
-        for col in df.columns:
-            col_lower = col.lower().replace(' ', '_')
+        if strategy == 'drop':
+            df = df.dropna()
+        elif strategy == 'median':
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
+
+            categorical_cols = df.select_dtypes(include=['object']).columns
+            if len(categorical_cols) > 0:
+                for col in categorical_cols:
+                    mode_val = df[col].mode()
+                    if len(mode_val) > 0:
+                        df[col] = df[col].fillna(mode_val.iloc[0])
+        
+        elif strategy == 'mean':
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
+
+            categorical_cols = df.select_dtypes(include=['object']).columns
+            if len(categorical_cols) > 0:
+                for col in categorical_cols:
+                    mode_val = df[col].mode()
+                    if len(mode_val) > 0:
+                        df[col] = df[col].fillna(mode_val.iloc[0])
+
+        missing_after = df.isnull().sum().sum()
+        if missing_after > 0:
+            logger.info(f"  Missing values after: {missing_after}")
+
+        return df
+    
+    def feature_engineering(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create new features - SAME as preprocess.py
+        
+        Args:
+            df: Input dataframe
             
-            # Only normalize to lowercase with underscores
-            if col != col_lower:
-                column_mapping[col] = col_lower
+        Returns:
+            DataFrame with engineered features
+        """
+        fe_config = self.config.preprocess.get('feature_engineering', {})
+
+        if not fe_config:
+            return df
         
-        if column_mapping:
-            df = df.rename(columns=column_mapping)
+        logger.info("Create Engineered Feature")
+
+        # Tenure bins - SAME as preprocess.py
+        if fe_config.get("create_tenure_bins", False) and 'tenure' in df.columns:
+            df['tenure_group'] = pd.cut(
+                df['tenure'],
+                bins=[0, 12, 24, 48, 72],
+                labels=['0-1yr', '1-2yr', '2-4yr', '4-6yr']
+            )
+            logger.info("Created Tenure Group")
+
+        # Charge ratio - SAME as preprocess.py
+        if fe_config.get("create_charge_ratio", False):
+            if 'MonthlyCharges' in df.columns and 'TotalCharges' in df.columns:
+                df['charge_ratio'] = df['TotalCharges']/(df['MonthlyCharges']+1e-6)
+                logger.info("Created Charge Ratio")
         
         return df
     
-    def preprocess_input(self, data: pd.DataFrame) -> pd.DataFrame:
+    def encode_categorical(self, df: pd.DataFrame, column: str) -> pd.DataFrame:
         """
-        Preprocess input data
+        Encode categorical column - SAME as preprocess.py
         
-        For Pipeline models: minimal preprocessing (just normalize column names)
-        For standalone models: would need full preprocessing (not implemented in this version)
+        Args:
+            df: DataFrame
+            column: Column name to encode
+            
+        Returns:
+            DataFrame with encoded column
+        """
+        if column not in df.columns:
+            logger.warning(f"Column not found: {column}")
+            return df
+        
+        # Use existing encoder or create new one
+        if column not in self.label_encoders:
+            self.label_encoders[column] = LabelEncoder()
+            # Fit on current data
+            self.label_encoders[column].fit(df[column].astype(str))
+        else:
+            # Handle unseen categories
+            le = self.label_encoders[column]
+            current_vals = df[column].astype(str).unique()
+            existing_classes = set(le.classes_)
+            new_classes = set(current_vals) - existing_classes
+            
+            if new_classes:
+                # Expand encoder classes
+                all_classes = list(existing_classes) + list(new_classes)
+                le.classes_ = np.array(all_classes)
+
+        try:
+            df[column] = self.label_encoders[column].transform(df[column].astype(str))
+            logger.info(f"Encoded: {column} ({len(self.label_encoders[column].classes_)} classes)")
+        except Exception as e:
+            logger.error(f"Failed to encode {column}: {str(e)}")
+        
+        return df
+    
+    def scale_numerical(self, df: pd.DataFrame, columns: list) -> pd.DataFrame:
+        """
+        Scale numerical columns - SAME as preprocess.py
+        
+        Args:
+            df: DataFrame
+            columns: List of column names to scale
+            
+        Returns:
+            DataFrame with scaled columns
+        """
+        existing_cols = [col for col in columns if col in df.columns]
+
+        if not existing_cols:
+            logger.warning("No numerical columns found to scale")
+            return df
+        
+        logger.info("Scaling numerical columns")
+
+        try:
+            # Fit scaler if not fitted yet
+            if not hasattr(self.scaler, 'mean_') and not hasattr(self.scaler, 'data_min_'):
+                logger.info("Fitting scaler on current data")
+                self.scaler.fit(df[existing_cols])
+            
+            # Transform
+            df[existing_cols] = self.scaler.transform(df[existing_cols])
+            logger.info(f"Scaled {len(existing_cols)} features")
+        except Exception as e:
+            logger.error(f"Scaling failed: {str(e)}")
+        
+        return df
+    
+    def preprocess_input(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+        """
+        Preprocess input data - SAME pipeline as preprocess.py
         
         Args:
             data: Input dataframe
             
         Returns:
-            Preprocessed dataframe
+            Tuple of (preprocessed_dataframe, customer_ids)
         """
+        logger.info("Starting preprocessing pipeline")
+        
         df = data.copy()
         
-        if self.is_pipeline:
-            # Pipeline handles all preprocessing internally
-            # Just normalize column names and ensure proper structure
-            df = self._normalize_column_names(df)
-            
-            # Remove customer_id if present (not used in prediction)
-            for col in ['customer_id', 'customerID', 'customerid']:
-                if col in df.columns:
-                    df = df.drop(columns=[col])
-            
-            # Convert to numeric where needed
-            numeric_cols = ['tenure', 'monthly_charges', 'total_charges']
-            for col in numeric_cols:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            # Handle missing TotalCharges
-            if 'total_charges' in df.columns and df['total_charges'].isna().any():
-                if 'monthly_charges' in df.columns and 'tenure' in df.columns:
-                    df['total_charges'] = df['total_charges'].fillna(
-                        df['monthly_charges'] * df['tenure']
-                    )
-                else:
-                    df['total_charges'] = df['total_charges'].fillna(0)
-            
-            return df
-        else:
-            # For standalone models, would need full preprocessing
-            # This version assumes Pipeline is being used
-            raise NotImplementedError(
-                "Standalone model preprocessing not implemented. "
-                "Please use training_pipeline.py to create a Pipeline model."
-            )
+        # Store customer IDs if present - they will be dropped for prediction
+        customer_ids = None
+        customer_id_cols = ['customer_id', 'customerID', 'customerid']
+        for col in customer_id_cols:
+            if col in df.columns:
+                customer_ids = df[col].copy()
+                break
+        
+        # Step 1: Handle missing values - SAME as preprocess.py
+        df = self.handle_missing_values(df)
+        
+        # Step 2: Feature engineering - SAME as preprocess.py
+        df = self.feature_engineering(df)
+        
+        # Step 3: Encode categorical features - SAME as preprocess.py
+        categorical_features = self.config.preprocess.get('categorical_features', [])
+        for col in categorical_features:
+            if col in df.columns:
+                df = self.encode_categorical(df, col)
+        
+        # Step 4: Scale numerical features - SAME as preprocess.py
+        numerical_features = self.config.preprocess.get('numerical_features', [])
+        df = self.scale_numerical(df, numerical_features)
+        
+        # Remove customer_id and target columns for prediction
+        exclude_cols = customer_id_cols + [self.config.preprocess.get('target', 'Churn')]
+        for col in exclude_cols:
+            if col in df.columns:
+                df = df.drop(columns=[col])
+        
+        logger.info("Preprocessing completed")
+        
+        return df, customer_ids
     
     def predict(self, data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -177,20 +324,15 @@ class MLService:
             raise RuntimeError("Model not loaded. Call load_model() first.")
         
         try:
-            # Preprocess input (minimal for Pipeline)
-            X = self.preprocess_input(data)
+            # Preprocess input - returns preprocessed data and customer_ids
+            X, customer_ids = self.preprocess_input(data)
             
-            logger.info(f"Input shape after preprocessing: {X.shape}")
-            logger.info(f"Input columns: {list(X.columns)}")
+            logger.info(f"Preprocessed input shape: {X.shape}")
+            logger.info(f"Preprocessed columns: {list(X.columns)}")
             
-            if self.is_pipeline:
-                # Pipeline expects DataFrame with original column structure
-                predictions = self.model.predict(X)
-                probabilities = self.model.predict_proba(X)
-            else:
-                # Standalone model would need array input
-                predictions = self.model.predict(X.values)
-                probabilities = self.model.predict_proba(X.values)
+            # Make predictions
+            predictions = self.model.predict(X.values)
+            probabilities = self.model.predict_proba(X.values)
             
             return predictions, probabilities
             
@@ -213,16 +355,8 @@ class MLService:
         
         # Try to get feature names
         features = []
-        try:
-            if self.is_pipeline:
-                # Try to get features from preprocessor step
-                preprocess_step = self.model.named_steps.get('preprocess')
-                if preprocess_step and hasattr(preprocess_step, 'feature_names_'):
-                    features = preprocess_step.feature_names_
-            elif hasattr(self.model, 'feature_names_in_'):
-                features = self.model.feature_names_in_.tolist()
-        except Exception:
-            pass
+        if hasattr(self.model, 'feature_names_in_'):
+            features = self.model.feature_names_in_.tolist()
         
         return {
             "model_type": self.model_info.get("model_type", "Unknown"),
