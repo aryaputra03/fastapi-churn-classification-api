@@ -433,18 +433,18 @@ jobs:
           docker run --rm \
             -v $(pwd)/data:/app/data \
             -v $(pwd)/params.yml:/app/params.yml \
-            ${{ env.DOCKER_IMAGE }}:latest \
+            stavanger/churn-classifier-api:latest \
             bash -c "python -c 'from src.utils import setup_directories, generate_sample_data; setup_directories(); generate_sample_data(\"data/raw/churn_data.csv\", n_samples=100)' && python -m src.preprocess"
-      
+
       - name: Test Training
         run: |
           docker run --rm \
             -v $(pwd)/data:/app/data \
             -v $(pwd)/models:/app/models \
             -v $(pwd)/params.yml:/app/params.yml \
-            ${{ env.DOCKER_IMAGE }}:latest \
+            stavanger/churn-classifier-api:latest \
             bash -c "python -m src.train && python -c 'from src.save_preprocessor import create_and_save_preprocessor; create_and_save_preprocessor()'"
-      
+
       - name: Test evaluation
         run: |
           docker run --rm \
@@ -452,9 +452,9 @@ jobs:
             -v $(pwd)/models:/app/models \
             -v $(pwd)/params.yml:/app/params.yml \
             -v $(pwd)/metrics:/app/metrics \
-            ${{ env.DOCKER_IMAGE }}:latest \
+            stavanger/churn-classifier-api:latest \
             python -m src.evaluate
-      
+
       - name: Verify outputs
         run: |
           if [ -f models/churn_model.pkl ]; then
@@ -471,11 +471,12 @@ jobs:
             echo "Metrics file not found"
             exit 1
           fi
-      
+
       - name: Pull API image
         run: |
-          docker pull ${{ env.DOCKER_IMAGE }}:api || docker build -t ${{ env.DOCKER_IMAGE }}:api -f docker/Dockerfile.api .
-      
+          docker pull stavanger/churn-classifier-api:api || \
+          docker build -t stavanger/churn-classifier-api:api -f docker/Dockerfile.api .
+
       - name: Test API Container 
         run: |
           docker run -d \
@@ -483,17 +484,17 @@ jobs:
             -p 8000:8000 \
             -v $(pwd)/models:/app/models \
             -v $(pwd)/params.yml:/app/params.yml \
-            ${{ env.DOCKER_IMAGE }}:api
+            stavanger/churn-classifier-api:api
 
-            echo "Waiting for API to Start..."
-            sleep 15
+          echo "Waiting for API to Start..."
+          sleep 15
 
-            curl -f http://localhost:8000/health || exit 1
-            echo "Health check passed"
+          curl -f http://localhost:8000/health || exit 1
+          echo "Health check passed"
 
-            curl -f -X POST http://localhost:8000/predict \
-              -H "Content-Type: application/json" \
-              -d '{
+          curl -f -X POST http://localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{
               "customer_id": "TEST001",
               "gender": "Male",
               "tenure": 24,
@@ -502,11 +503,13 @@ jobs:
               "contract": "One year",
               "payment_method": "Bank transfer (automatic)",
               "internet_service": "Fiber optic"
-              }' || exit 1
-            echo "Prediction endpoint passed"
+            }' || exit 1
 
-            docker stop test-api
-            docker rm test-api
+          echo "Prediction endpoint passed"
+
+          docker stop test-api
+          docker rm test-api
+
 
   # ==========================================
   # Job 8: Notification & Status
