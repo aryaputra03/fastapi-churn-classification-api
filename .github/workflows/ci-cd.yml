@@ -329,26 +329,21 @@ jobs:
             echo "push_enabled=false" >> $GITHUB_OUTPUT
           fi
       
-      - name: Build and Push Production Image
+      - name: Build Production Image (no push)
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/Dockerfile
-          push: ${{ steps.check_docker.outputs.push_enabled == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+          push: false
+          tags: local/your-app:latest
       
-      - name: Build Development Image
+      - name: Build Development Image (no push)
         uses: docker/build-push-action@v5
-        with: 
+        with:
           context: .
           file: ./docker/Dockerfile.dev
-          push: ${{ steps.check_docker.outputs.push_enabled == 'true' }}
-          tags: ${{ env.DOCKER_IMAGE }}:dev
-          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:dev-buildcache
-          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:dev-buildcache,mode=max
+          push: false
+          tags: local/your-app:dev
       
       - name: Image digest
         run: echo ${{ steps.meta.outputs.digest }}
