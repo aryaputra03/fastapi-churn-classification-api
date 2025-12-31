@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}churn-classifier-api
+  DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}/churn-classifier-api
 
 jobs:
   docker-publish:
