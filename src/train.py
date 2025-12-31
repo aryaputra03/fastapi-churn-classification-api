@@ -289,7 +289,7 @@ def save_preprocessor(preprocessor, model_path: str):
     preprocessor_path = model_dir / "preprocessor.pkl"
     
     joblib.dump(preprocessor, preprocessor_path)
-    logger.info(f"💾 Preprocessor saved to {preprocessor_path}")
+    logger.info(f"Preprocessor saved to {preprocessor_path}")
 
 def main():
     """
