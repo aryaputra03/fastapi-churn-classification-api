@@ -329,21 +329,25 @@ jobs:
             echo "push_enabled=false" >> $GITHUB_OUTPUT
           fi
       
-      - name: Build Production Image (no push)
+      - name: Build & Push Production Image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/Dockerfile
-          push: false
-          tags: local/your-app:latest
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/churn-classifier-api:latest
+
       
-      - name: Build Development Image (no push)
+      - name: Build & Push Development Image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/Dockerfile.dev
-          push: false
-          tags: local/your-app:dev
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/churn-classifier-api:dev
+
       
       - name: Image digest
         run: echo ${{ steps.meta.outputs.digest }}
@@ -376,17 +380,18 @@ jobs:
             echo "Docker credentials not found, skipping login"
           fi
       
-      - name: Build API Image (no push)
+      - name: Build & Push API Image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/Dockerfile.api
-          push: false
+          push: true
           tags: |
-            local/api:latest
-            local/api:${{ github.sha }}
+            ${{ secrets.DOCKER_USERNAME }}/churn-classifier-api:api-latest
+            ${{ secrets.DOCKER_USERNAME }}/churn-classifier-api:api-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
   
   # ==========================================
   # Job 7: Integration Test
