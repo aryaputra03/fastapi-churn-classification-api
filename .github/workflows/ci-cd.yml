@@ -370,17 +370,17 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       
-      - name: Build and Push API Image
+      - name: Build API Image (no push)
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/Dockerfile.api
-          push: ${{ secrets.DOCKER_USERNAME != '' }}
+          push: false
           tags: |
-            ${{ env.DOCKER_IMAGE }}:api
-            ${{ env.DOCKER_IMAGE }}:api-${{ github.sha }}
-          cache-from: type=registry, ref=${{ env.DOCKER_IMAGE }}:api-buildcache
-          cache-to: type=registry, ref=${{ env.DOCKER_IMAGE }}:api-buildcache, mode=max
+            local/api:latest
+            local/api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
   
   # ==========================================
   # Job 7: Integration Test
