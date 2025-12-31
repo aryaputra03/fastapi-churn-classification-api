@@ -4,9 +4,10 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-ready-brightgreen.svg)](https://www.docker.com/)
 [![DVC](https://img.shields.io/badge/data-dvc-9cf.svg)](https://dvc.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-00a393.svg)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A production-ready MLOps project for customer churn prediction featuring Docker containerization, DVC data versioning, and automated CI/CD with GitHub Actions.
+A production-ready MLOps project for customer churn prediction featuring Docker containerization, DVC data versioning, FastAPI REST API, database integration, and automated CI/CD with GitHub Actions.
 
 ---
 
@@ -17,24 +18,25 @@ A production-ready MLOps project for customer churn prediction featuring Docker 
 - [Prerequisites](#-prerequisites)
 - [Quick Start](#-quick-start)
 - [Installation](#-installation)
-- [Usage](#-usage)
+- [ML Pipeline Usage](#-ml-pipeline-usage)
+- [API Usage](#-api-usage)
 - [Docker Workflows](#-docker-workflows)
 - [DVC Integration](#-dvc-integration)
+- [Database Management](#-database-management)
 - [CI/CD Pipeline](#-cicd-pipeline)
 - [Configuration](#-configuration)
-- [Development](#-development)
 - [Testing](#-testing)
 - [Deployment](#-deployment)
+- [Monitoring & Analytics](#-monitoring--analytics)
 - [Troubleshooting](#-troubleshooting)
 - [Contributing](#-contributing)
-- [License](#-license)
 
 ---
 
 ## ✨ Features
 
-### Core Features
-- 🤖 **Machine Learning Pipeline**: Complete end-to-end churn prediction workflow
+### Core ML Features
+- 🤖 **Complete ML Pipeline**: End-to-end churn prediction workflow
 - 🐳 **Docker Containerization**: Fully containerized with multi-stage builds
 - 📊 **DVC Integration**: Data and model versioning with DVC
 - 🔄 **CI/CD Automation**: Automated testing and deployment with GitHub Actions
@@ -42,14 +44,25 @@ A production-ready MLOps project for customer churn prediction featuring Docker 
 - 📈 **Metrics Tracking**: Automated evaluation and performance monitoring
 - 🔧 **Configurable**: YAML-based configuration for easy experimentation
 
+### API Features
+- 🚀 **REST API**: FastAPI-based prediction service
+- 💾 **Database Integration**: SQLAlchemy with SQLite/PostgreSQL support
+- 📝 **Request Validation**: Pydantic models for data validation
+- 📚 **Interactive Docs**: Automatic Swagger UI & ReDoc generation
+- 📊 **Prediction Logging**: Complete history tracking in database
+- 📈 **Real-time Analytics**: Statistics and performance monitoring
+- 🔄 **Batch Processing**: Support for multiple predictions
+- 📁 **CSV Upload**: File-based batch predictions
+
 ### Technical Stack
 - **ML Framework**: Scikit-learn
+- **API Framework**: FastAPI, Uvicorn
+- **Database**: SQLAlchemy (SQLite, PostgreSQL)
 - **Containerization**: Docker, Docker Compose
 - **Data Versioning**: DVC (supports S3, GDrive, local)
 - **CI/CD**: GitHub Actions
 - **Testing**: Pytest, Coverage
 - **Linting**: Ruff, Black, Flake8
-- **Notebook**: Jupyter
 
 ---
 
@@ -77,17 +90,27 @@ churn-classification-mlops/
 │   ├── preprocess.py                  # Data preprocessing
 │   ├── train.py                       # Model training
 │   ├── evaluate.py                    # Model evaluation
-│   └── predict.py                     # Inference/prediction
+│   ├── predict.py                     # Inference/prediction
+│   │
+│   └── api/                           # FastAPI application
+│       ├── __init__.py
+│       ├── main.py                    # API entry point
+│       ├── models.py                  # Pydantic models
+│       ├── database.py                # Database configuration
+│       ├── crud.py                    # Database operations
+│       └── schemas.py                 # Request/Response schemas
 │
 ├── tests/
 │   ├── __init__.py
 │   ├── test_preprocess.py
 │   ├── test_train.py
-│   └── test_evaluate.py
+│   ├── test_evaluate.py
+│   └── test_api.py                    # API endpoint tests
 │
 ├── docker/
 │   ├── Dockerfile                     # Production Docker image
 │   ├── Dockerfile.dev                 # Development Docker image
+│   ├── Dockerfile.api                 # API-specific Docker image
 │   └── docker-compose.yml             # Multi-container orchestration
 │
 ├── scripts/
@@ -129,87 +152,53 @@ churn-classification-mlops/
 
 ### Optional
 - **DVC** 3.30 or higher (for data versioning)
+- **PostgreSQL** 13+ (for production database)
 - **Make** (for using Makefile commands)
 
 ### Windows Users
 - **Docker Desktop** with WSL2 backend
 - **WSL2** (Ubuntu 20.04 or later recommended)
 
-Installation on Windows:
-```powershell
-# Install Docker Desktop from official website
-# Enable WSL2 backend in Docker Desktop settings
-
-# Verify installation
-docker --version
-docker-compose --version
-wsl --version
-```
-
 ---
 
 ## 🚀 Quick Start
 
-### Option 1: Using Make (Recommended)
+### Complete Setup (ML + API)
 
 ```bash
 # 1. Clone repository
 git clone https://github.com/yourusername/churn-classification-mlops.git
 cd churn-classification-mlops
 
-# 2. Install dependencies
+# 2. Install all dependencies
 make install-dev
 
-# 3. Setup project
+# 3. Setup project (initialize DVC, database, etc.)
 make setup
 
 # 4. Generate sample data
 make data
 
-# 5. Run complete pipeline
+# 5. Run ML pipeline
 make pipeline
 
-# 6. View results
-cat metrics.json
+# 6. Start API server
+make api-run
+
+# 7. Access API documentation
+# Open browser: http://localhost:8000/docs
 ```
 
-### Option 2: Using Scripts
+### Docker Quick Start
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/yourusername/churn-classification-mlops.git
-cd churn-classification-mlops
+# Start all services (ML + API + Database)
+docker-compose up
 
-# 2. Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -r requirements-dev.txt
-
-# 4. Make scripts executable
-chmod +x scripts/*.sh
-
-# 5. Run pipeline
-./scripts/run_pipeline.sh
-```
-
-### Option 3: Using Docker
-
-```bash
-# 1. Clone repository
-git clone https://github.com/yourusername/churn-classification-mlops.git
-cd churn-classification-mlops
-
-# 2. Build Docker image
-./scripts/docker_build.sh
-
-# 3. Run pipeline in container
-docker run --rm \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/models:/app/models \
-  -v $(pwd)/params.yaml:/app/params.yaml \
-  churn-classifier:latest
+# Access:
+# - API: http://localhost:8000
+# - API Docs: http://localhost:8000/docs
+# - Jupyter: http://localhost:8888
 ```
 
 ---
@@ -226,11 +215,12 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 # 2. Upgrade pip
 pip install --upgrade pip
 
-# 3. Install development dependencies
+# 3. Install all dependencies (including API)
 pip install -r requirements-dev.txt
+pip install fastapi uvicorn sqlalchemy pydantic
 
 # 4. Verify installation
-python -c "import src; print(src.get_version())"
+python -c "import src; import fastapi; print('✓ Installation successful')"
 pytest --version
 docker --version
 ```
@@ -238,41 +228,32 @@ docker --version
 ### Docker Setup
 
 ```bash
-# Build production image
+# Build all images
+make docker-build-all
+
+# Or build individually:
 docker build -t churn-classifier:latest -f docker/Dockerfile .
-
-# Build development image
 docker build -t churn-classifier:dev -f docker/Dockerfile.dev .
-
-# Or use the build script
-./scripts/docker_build.sh
-./scripts/docker_build.sh --dev
+docker build -t churn-api:latest -f docker/Dockerfile.api .
 ```
 
-### DVC Setup
+### Database Setup
 
 ```bash
-# Initialize DVC
-dvc init
+# Initialize SQLite database (default)
+make db-init
 
-# Add remote storage (choose one):
+# Or manually:
+python -c "from src.api.database import init_db; init_db()"
 
-# Local storage (for testing)
-dvc remote add -d myremote /tmp/dvc-storage
-
-# Amazon S3
-dvc remote add -d myremote s3://my-bucket/dvc-storage
-
-# Google Drive
-dvc remote add -d myremote gdrive://your-folder-id
-
-# Or use setup script
-./scripts/setup_dvc.sh
+# For PostgreSQL (production):
+export DATABASE_URL="postgresql://user:password@localhost/churn_db"
+make db-init
 ```
 
 ---
 
-## 📚 Usage
+## 📚 ML Pipeline Usage
 
 ### Running Individual Steps
 
@@ -284,7 +265,6 @@ python -m src.preprocess --config params.yaml
 # Docker
 docker run --rm \
   -v $(pwd)/data:/app/data \
-  -v $(pwd)/params.yaml:/app/params.yaml \
   churn-classifier:latest \
   python -m src.preprocess
 
@@ -301,7 +281,6 @@ python -m src.train --config params.yaml
 docker run --rm \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/models:/app/models \
-  -v $(pwd)/params.yaml:/app/params.yaml \
   churn-classifier:latest \
   python -m src.train
 
@@ -318,8 +297,6 @@ python -m src.evaluate --config params.yaml
 docker run --rm \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/models:/app/models \
-  -v $(pwd)/params.yaml:/app/params.yaml \
-  -v $(pwd)/metrics.json:/app/metrics.json \
   churn-classifier:latest \
   python -m src.evaluate
 
@@ -327,105 +304,186 @@ docker run --rm \
 make evaluate
 ```
 
-#### 4. Making Predictions
-```bash
-# Local
-python -m src.predict \
-  --input data/new_customers.csv \
-  --output predictions.csv
-
-# Docker
-docker run --rm \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/models:/app/models \
-  churn-classifier:latest \
-  python -m src.predict --input /app/data/new_customers.csv
-
-# Make
-make predict INPUT=data/new_customers.csv
-```
-
 ### Running Complete Pipeline
 
 ```bash
-# Option 1: Using script
-./scripts/run_pipeline.sh
-
-# Option 2: Using Make
+# Option 1: Using Make
 make pipeline
 
-# Option 3: Using DVC
+# Option 2: Using DVC
 dvc repro
 
-# Option 4: Using Docker Compose
-docker-compose -f docker/docker-compose.yml up ml-pipeline-full
+# Option 3: Using Docker Compose
+docker-compose up ml-pipeline-full
+
+# Option 4: Using script
+./scripts/run_pipeline.sh
 ```
+
+---
+
+## 🚀 API Usage
+
+### Starting the API Server
+
+```bash
+# Development mode (auto-reload)
+uvicorn src.api.main:app --reload
+
+# Production mode
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 4
+
+# Using Make
+make api-run
+
+# Using Docker
+docker-compose up api
+```
+
+### API Endpoints Overview
+
+#### Health & Information
+```bash
+# Root endpoint
+curl http://localhost:8000/
+
+# Health check
+curl http://localhost:8000/health
+
+# Model information
+curl http://localhost:8000/model/info
+```
+
+#### Single Prediction
+```bash
+curl -X POST "http://localhost:8000/predict" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_id": "CUST001",
+    "gender": "Female",
+    "tenure": 12,
+    "monthly_charges": 70.35,
+    "total_charges": 844.20,
+    "contract": "Month-to-month",
+    "payment_method": "Electronic check",
+    "internet_service": "Fiber optic"
+  }'
+
+# Response:
+{
+  "customer_id": "CUST001",
+  "prediction": 1,
+  "churn_label": "Will Churn",
+  "probability": 0.78,
+  "confidence": "high",
+  "prediction_id": 1
+}
+```
+
+#### Batch Predictions
+```bash
+curl -X POST "http://localhost:8000/predict/batch" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customers": [
+      {
+        "customer_id": "CUST001",
+        "gender": "Female",
+        "tenure": 12,
+        "monthly_charges": 70.35,
+        "total_charges": 844.20,
+        "contract": "Month-to-month",
+        "payment_method": "Electronic check",
+        "internet_service": "Fiber optic"
+      },
+      {
+        "customer_id": "CUST002",
+        "gender": "Male",
+        "tenure": 48,
+        "monthly_charges": 45.50,
+        "total_charges": 2184.00,
+        "contract": "Two year",
+        "payment_method": "Bank transfer",
+        "internet_service": "DSL"
+      }
+    ]
+  }'
+```
+
+#### CSV Upload
+```bash
+curl -X POST "http://localhost:8000/predict/csv" \
+  -F "file=@customers.csv"
+```
+
+#### Prediction History
+```bash
+# All predictions
+curl http://localhost:8000/predictions/history?limit=10
+
+# Customer-specific predictions
+curl http://localhost:8000/predictions/customer/CUST001
+
+# Analytics summary
+curl http://localhost:8000/analytics/summary
+```
+
+### Interactive API Documentation
+
+Visit these URLs when the API is running:
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+Both provide interactive documentation where you can test all endpoints directly in your browser.
 
 ---
 
 ## 🐳 Docker Workflows
 
-### Development Workflow (Inside Container Approach)
-
-Best for experimentation and development:
+### Development Workflow
 
 ```bash
-# Start development container with live code mounting
-docker run -it --rm \
-  -v $(pwd):/app \
-  -w /app \
-  -p 8888:8888 \
-  churn-classifier:dev \
-  bash
+# Start development environment
+docker-compose up ml-dev
 
-# Inside container:
-dvc repro
-pytest tests/
-jupyter notebook --ip=0.0.0.0 --allow-root
+# Access Jupyter notebook
+# URL: http://localhost:8888
+
+# Run pipeline inside container
+docker exec -it churn-ml-dev dvc repro
 ```
 
-### Production Workflow (Outside Container Approach)
-
-Best for automated pipelines:
+### Production Workflow
 
 ```bash
-# Run specific stages with Docker
-python -m src.train  # Uses Docker internally via DVC pipeline
-dvc repro  # Orchestrates Docker containers for each stage
-```
+# Build production images
+make docker-build-all
 
-### Docker Compose Multi-Service
-
-```bash
 # Start all services
-docker-compose -f docker/docker-compose.yml up
+docker-compose up -d
 
-# Start specific service
-docker-compose -f docker/docker-compose.yml up ml-training
-docker-compose -f docker/docker-compose.yml up ml-dev
-docker-compose -f docker/docker-compose.yml up dvc-pipeline
+# Check status
+docker-compose ps
 
-# Stop all services
-docker-compose -f docker/docker-compose.yml down
+# View logs
+docker-compose logs -f api
 
-# Or use helper script
-./scripts/docker_compose_run.sh
+# Stop services
+docker-compose down
 ```
 
-### Jupyter Notebook in Docker
+### Multi-Service Setup
 
-```bash
-# Start Jupyter
-docker-compose -f docker/docker-compose.yml up ml-dev
-
-# Access at: http://localhost:8888
-
-# Or manually:
-docker run -it --rm \
-  -v $(pwd):/app \
-  -p 8888:8888 \
-  churn-classifier:dev \
-  jupyter notebook --ip=0.0.0.0 --allow-root
+```yaml
+# docker-compose.yml includes:
+services:
+  postgres:      # PostgreSQL database
+  api:           # API with SQLite
+  api-postgres:  # API with PostgreSQL
+  ml-training:   # ML training service
+  ml-dev:        # Development environment
+  dvc-pipeline:  # DVC pipeline runner
 ```
 
 ---
@@ -435,6 +493,12 @@ docker run -it --rm \
 ### Basic DVC Commands
 
 ```bash
+# Initialize DVC
+dvc init
+
+# Add remote storage
+dvc remote add -d myremote s3://my-bucket/dvc-storage
+
 # Pull data from remote
 dvc pull
 
@@ -468,39 +532,74 @@ git commit -m "Add new data"
 dvc push
 ```
 
-### DVC + Docker Workflows
+---
 
-#### Inside Container (Development)
+## 💾 Database Management
+
+### Database Schema
+
+The API uses these main tables:
+
+#### PredictionLog
+Stores all prediction requests and results
+```sql
+- id: Primary key
+- customer_id: Customer identifier
+- prediction: Churn prediction (0/1)
+- probability: Churn probability
+- input_data: JSON of input features
+- created_at: Timestamp
+```
+
+#### Customer
+Stores customer information
+```sql
+- id: Primary key
+- customer_id: Unique customer ID
+- gender, tenure, monthly_charges, etc.
+- is_active: Customer status
+- created_at: Registration timestamp
+```
+
+#### ModelMetrics
+Tracks model performance over time
+```sql
+- id: Primary key
+- model_version: Model identifier
+- accuracy, precision, recall, f1_score
+- confusion_matrix: JSON format
+- created_at: Evaluation timestamp
+```
+
+### Database Operations
+
 ```bash
-# Mount workspace into container
-docker run -v $(pwd):/app -w /app -it churn-classifier:dev dvc repro
+# Initialize database
+make db-init
+
+# Reset database
+make db-reset
+
+# View database stats
+sqlite3 churn_predictions.db "SELECT COUNT(*) FROM prediction_logs;"
+
+# Export predictions
+sqlite3 churn_predictions.db ".mode csv" ".output predictions.csv" "SELECT * FROM prediction_logs;"
 ```
 
-**Pros:**
-- Live code changes
-- No git clone needed
-- Results automatically on host
+### PostgreSQL Setup (Production)
 
-**Use case:** Experimentation, development
+```bash
+# Start PostgreSQL container
+docker-compose up postgres
 
-#### Outside Container (Production)
-```yaml
-# dvc.yaml stage with Docker
-stages:
-  train:
-    cmd: docker run churn-classifier python -m src.train
-    deps:
-      - data/processed/
-    outs:
-      - models/model.pkl
+# Connect to database
+docker exec -it churn-postgres psql -U churn_user -d churn_db
+
+# Run API with PostgreSQL
+export DATABASE_URL="postgresql://churn_user:churn_password@localhost:5432/churn_db"
+uvicorn src.api.main:app --reload
 ```
-
-**Pros:**
-- Managed by DVC
-- Automatic image updates
-- Production-ready
-
-**Use case:** Production pipelines, CI/CD
 
 ---
 
@@ -508,192 +607,92 @@ stages:
 
 ### GitHub Actions Workflow
 
-The CI/CD pipeline automatically runs on push and pull requests:
+The automated pipeline runs on push and pull requests:
 
 ```
-┌─────────────┐
-│ Push/PR     │
-└──────┬──────┘
-       │
-       ├─► Lint (Ruff, Black, Flake8)
-       │        │
-       │        ✓
-       │
-       ├─► Test (Python 3.9, 3.10, 3.11)
-       │        │
-       │        ├─► Unit Tests
-       │        ├─► Coverage Report
-       │        └─► Upload to Codecov
-       │        │
-       │        ✓
-       │
-       ├─► DVC Pipeline (main branch only)
-       │        │
-       │        ├─► Pull data
-       │        ├─► Run pipeline in Docker
-       │        └─► Push results
-       │        │
-       │        ✓
-       │
-       ├─► Docker Build & Push
-       │        │
-       │        ├─► Build production image
-       │        ├─► Build dev image
-       │        └─► Push to registry
-       │        │
-       │        ✓
-       │
-       ├─► Integration Tests
-       │        │
-       │        ├─► Test preprocessing
-       │        ├─► Test training
-       │        └─► Test evaluation
-       │        │
-       │        ✓
-       │
-       └─► Status Check
-                │
-                └─► ✅ Success / ❌ Failure
+Push/PR → Lint → Test → DVC Pipeline → Docker Build → Integration Tests → Deploy
 ```
+
+### Pipeline Stages
+
+1. **Lint**: Code quality checks (Ruff, Black, Flake8)
+2. **Test**: Unit tests with coverage (Python 3.9, 3.10, 3.11)
+3. **DVC Pipeline**: Run ML pipeline in Docker
+4. **Docker Build**: Build and push images
+5. **Integration Tests**: End-to-end testing
+6. **API Tests**: Test all endpoints
 
 ### Setup GitHub Secrets
 
-Required secrets for CI/CD:
-
+Required secrets:
 ```
 DOCKER_USERNAME: your-dockerhub-username
 DOCKER_PASSWORD: your-dockerhub-token
 AWS_ACCESS_KEY_ID: your-aws-key (if using S3)
 AWS_SECRET_ACCESS_KEY: your-aws-secret (if using S3)
+DATABASE_URL: production database URL
 ```
-
-Add secrets:
-1. Go to repository Settings → Secrets and variables → Actions
-2. Click "New repository secret"
-3. Add each secret
-
-### Manual Workflow Trigger
-
-Trigger workflow manually from GitHub UI:
-1. Go to Actions tab
-2. Select "ML CI/CD Pipeline"
-3. Click "Run workflow"
 
 ---
 
 ## ⚙️ Configuration
 
-### Modify Hyperparameters
-
-Edit `params.yaml`:
-
-```yaml
-train:
-  model_type: random_forest
-  n_estimators: 100          # Change to 200
-  max_depth: 10              # Change to 15
-  min_samples_split: 5
-  random_state: 42
-```
-
-Then rerun:
-```bash
-dvc repro
-# or
-make pipeline
-```
-
-### Change Data Paths
+### params.yaml Structure
 
 ```yaml
 data:
-  raw_path: data/raw/my_custom_data.csv
-  processed_path: data/processed/my_processed_data.csv
-```
+  raw_path: data/raw/churn_data.csv
+  processed_path: data/processed/churn_processed.csv
 
-### Add New Features
-
-```yaml
 preprocess:
+  test_size: 0.2
+  random_state: 42
   numerical_features:
     - tenure
     - MonthlyCharges
     - TotalCharges
-    - my_new_feature  # Add your feature
-  
-  feature_engineering:
-    create_tenure_bins: true
-    create_charge_ratio: true
-    my_new_transformation: true  # Add your transformation
+  categorical_features:
+    - gender
+    - Contract
+    - PaymentMethod
+
+train:
+  model_type: random_forest
+  n_estimators: 100
+  max_depth: 10
+  min_samples_split: 5
+  random_state: 42
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  workers: 4
+  reload: false
+
+database:
+  type: sqlite  # or postgresql
+  url: sqlite:///churn_predictions.db
 ```
 
----
-
-## 🔧 Development
-
-### Local Development Setup
+### Environment Variables
 
 ```bash
-# Install pre-commit hooks (optional)
-pip install pre-commit
-pre-commit install
+# API Configuration
+API_HOST=0.0.0.0
+API_PORT=8000
+API_WORKERS=4
 
-# Install in editable mode
-pip install -e .
+# Database
+DATABASE_URL=sqlite:///churn_predictions.db
+# DATABASE_URL=postgresql://user:pass@host:5432/db
 
-# Run linting
-make lint
+# Model
+MODEL_PATH=models/churn_model.pkl
 
-# Format code
-make format
-
-# Run tests
-make test
-```
-
-### Adding New Features
-
-```bash
-# 1. Create feature branch
-git checkout -b feature/new-awesome-feature
-
-# 2. Implement feature
-# Edit files...
-
-# 3. Add tests
-# Create tests/test_new_feature.py
-
-# 4. Run tests
-make test
-
-# 5. Update DVC pipeline if needed
-# Edit dvc.yaml
-
-# 6. Test pipeline
-dvc repro
-
-# 7. Commit changes
-git add .
-git commit -m "feat: add awesome new feature"
-
-# 8. Push and create PR
-git push origin feature/new-awesome-feature
-```
-
-### Code Quality
-
-```bash
-# Run all quality checks
-make lint
-
-# Auto-format code
-make format
-
-# Type checking (if mypy configured)
-mypy src/
-
-# Security check
-bandit -r src/
+# DVC
+DVC_REMOTE_URL=s3://my-bucket/dvc-storage
+AWS_ACCESS_KEY_ID=your-key
+AWS_SECRET_ACCESS_KEY=your-secret
 ```
 
 ---
@@ -703,30 +702,30 @@ bandit -r src/
 ### Run All Tests
 
 ```bash
-# Using pytest
-pytest tests/ -v
-
-# Using Make
+# All tests
 make test
+
+# ML pipeline tests only
+pytest tests/test_*.py -v --ignore=tests/test_api.py
+
+# API tests only
+make api-test
 
 # With coverage
 make test-coverage
-
-# In Docker
-docker run --rm churn-classifier:dev pytest tests/ -v
 ```
 
-### Run Specific Tests
+### Test Specific Components
 
 ```bash
-# Test specific file
-pytest tests/test_train.py -v
+# Test preprocessing
+pytest tests/test_preprocess.py -v
 
-# Test specific function
-pytest tests/test_train.py::test_model_training -v
+# Test API endpoints
+pytest tests/test_api.py -v
 
 # Test with keyword
-pytest tests/ -k "test_preprocess" -v
+pytest tests/ -k "test_predict" -v
 ```
 
 ### Coverage Report
@@ -738,99 +737,228 @@ pytest tests/ --cov=src --cov-report=term-missing
 # HTML report
 pytest tests/ --cov=src --cov-report=html
 open htmlcov/index.html
-
-# Using Make
-make test-coverage
 ```
 
 ---
 
 ## 🚀 Deployment
 
-### Deploy to Production Server
+### Local Production Deployment
 
 ```bash
-# 1. Pull Docker image
-docker pull yourusername/churn-classifier:latest
-
-# 2. Run container
-docker run -d \
-  --name churn-api \
-  -v /path/to/data:/app/data \
-  -v /path/to/models:/app/models \
-  -p 8080:8080 \
-  yourusername/churn-classifier:latest
-
-# 3. Check logs
-docker logs churn-api
-
-# 4. Test endpoint
-curl http://localhost:8080/predict -X POST -d @sample.json
+# Using Gunicorn + Uvicorn workers
+gunicorn src.api.main:app \
+  --workers 4 \
+  --worker-class uvicorn.workers.UvicornWorker \
+  --bind 0.0.0.0:8000 \
+  --timeout 120 \
+  --access-logfile logs/access.log \
+  --error-logfile logs/error.log
 ```
 
-### Deploy to Kubernetes
+### Docker Production Deployment
+
+```bash
+# Pull latest image
+docker pull yourusername/churn-api:latest
+
+# Run container
+docker run -d \
+  --name churn-api \
+  -p 8000:8000 \
+  -v $(pwd)/models:/app/models \
+  -e DATABASE_URL=postgresql://user:pass@host/db \
+  yourusername/churn-api:latest
+
+# Check logs
+docker logs churn-api -f
+
+# Health check
+curl http://localhost:8000/health
+```
+
+### Kubernetes Deployment
 
 ```yaml
 # k8s-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: churn-classifier
+  name: churn-api
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: churn-classifier
+      app: churn-api
   template:
     metadata:
       labels:
-        app: churn-classifier
+        app: churn-api
     spec:
       containers:
-      - name: churn-classifier
-        image: yourusername/churn-classifier:latest
+      - name: churn-api
+        image: yourusername/churn-api:latest
         ports:
-        - containerPort: 8080
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
         volumeMounts:
         - name: models
           mountPath: /app/models
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
       volumes:
       - name: models
         persistentVolumeClaim:
           claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: churn-api-service
+spec:
+  selector:
+    app: churn-api
+  ports:
+  - port: 80
+    targetPort: 8000
+  type: LoadBalancer
 ```
 
 Apply:
 ```bash
 kubectl apply -f k8s-deployment.yaml
+kubectl get pods
+kubectl get services
+```
+
+---
+
+## 📈 Monitoring & Analytics
+
+### Application Metrics
+
+```bash
+# Get API analytics
+curl http://localhost:8000/analytics/summary
+
+# Response:
+{
+  "total_predictions": 1250,
+  "total_customers": 450,
+  "churn_rate": 24.96,
+  "recent_predictions_24h": 45,
+  "avg_churn_probability": 0.32,
+  "model_version": "v1.0.0"
+}
+```
+
+### Database Monitoring
+
+```bash
+# Check prediction volume
+sqlite3 churn_predictions.db \
+  "SELECT DATE(created_at), COUNT(*) 
+   FROM prediction_logs 
+   GROUP BY DATE(created_at);"
+
+# Check churn rate
+sqlite3 churn_predictions.db \
+  "SELECT 
+    AVG(prediction) * 100 as churn_rate,
+    AVG(probability) as avg_probability
+   FROM prediction_logs;"
+```
+
+### Logging
+
+```bash
+# View application logs
+tail -f logs/api.log
+
+# View Docker logs
+docker logs churn-api -f
+
+# View access logs
+tail -f logs/access.log
 ```
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Common Issues
+### Common Issues & Solutions
 
-#### Docker Permission Denied (Linux)
+#### Model Not Loading
 ```bash
-sudo usermod -aG docker $USER
-newgrp docker
+# Check model file
+ls -lh models/churn_model.pkl
+
+# Reload model via API
+curl -X POST http://localhost:8000/model/reload
+
+# Retrain model
+make train
 ```
 
-#### WSL2 Memory Issues (Windows)
-Create `.wslconfig` in Windows user directory:
-```ini
-[wsl2]
-memory=8GB
-processors=4
+#### Database Errors
+```bash
+# Reset database
+make db-reset
+
+# Check database connection
+python -c "from src.api.database import get_db; next(get_db())"
+
+# Check tables
+sqlite3 churn_predictions.db ".tables"
 ```
 
-Then restart WSL:
-```powershell
-wsl --shutdown
+#### Docker Issues
+```bash
+# Clear Docker cache
+docker system prune -a
+
+# Rebuild without cache
+docker-compose build --no-cache
+
+# Check container logs
+docker-compose logs api
 ```
 
-#### DVC Remote Connection Issues
+#### Port Already in Use
+```bash
+# Find process using port 8000
+lsof -ti:8000
+
+# Kill process
+kill -9 $(lsof -ti:8000)
+
+# Or use different port
+uvicorn src.api.main:app --port 8001
+```
+
+#### API Connection Refused
+```bash
+# Check if API is running
+curl http://localhost:8000/health
+
+# Check Docker network
+docker network ls
+docker network inspect churn-classification-mlops_default
+
+# Restart services
+docker-compose restart api
+```
+
+#### DVC Remote Issues
 ```bash
 # Check DVC config
 dvc remote list
@@ -840,54 +968,90 @@ dvc config -l
 dvc pull --verbose
 
 # Re-configure remote
-dvc remote modify myremote --local access_key_id YOUR_KEY
-dvc remote modify myremote --local secret_access_key YOUR_SECRET
+dvc remote modify myremote --local url s3://new-bucket
 ```
 
-#### Module Import Errors
-```bash
-# Ensure PYTHONPATH is set
-export PYTHONPATH=$(pwd):$PYTHONPATH
+---
 
-# Or install package in editable mode
-pip install -e .
+## 🔒 Security Best Practices
+
+### Production Checklist
+
+- [ ] Use HTTPS/TLS certificates
+- [ ] Implement API authentication (JWT/OAuth2)
+- [ ] Add rate limiting
+- [ ] Configure CORS properly
+- [ ] Use PostgreSQL with strong credentials
+- [ ] Store secrets in environment variables
+- [ ] Enable database connection pooling
+- [ ] Implement request logging
+- [ ] Set up monitoring alerts
+- [ ] Regular security updates
+
+### Example Security Configuration
+
+```python
+# In src/api/main.py
+from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+app = FastAPI()
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://yourdomain.com"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+@app.post("/predict")
+@limiter.limit("10/minute")
+async def predict(data: CustomerData):
+    # ... prediction logic
+    pass
 ```
 
-#### Docker Build Fails
-```bash
-# Clear Docker cache
-docker system prune -a
-
-# Build without cache
-docker build --no-cache -t churn-classifier:latest -f docker/Dockerfile .
-```
+---
 
 ## 📖 Additional Resources
 
 ### Documentation
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
 - [Docker Documentation](https://docs.docker.com/)
 - [DVC Documentation](https://dvc.org/doc)
-- [GitHub Actions](https://docs.github.com/actions)
-- [Scikit-learn](https://scikit-learn.org/)
+- [SQLAlchemy Documentation](https://docs.sqlalchemy.org/)
+- [Scikit-learn Documentation](https://scikit-learn.org/)
 
 ### Tutorials
 - [MLOps Best Practices](https://ml-ops.org/)
+- [FastAPI Full Tutorial](https://fastapi.tiangolo.com/tutorial/)
 - [Docker for Data Science](https://www.docker.com/blog/tag/data-science/)
-- [DVC with Docker Tutorial](https://dvc.org/doc/use-cases/versioning-data-and-model-files)
+- [DVC with Docker](https://dvc.org/doc/use-cases/versioning-data-and-model-files)
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
-### Quick Contribution Guide
+We welcome contributions! Please follow these steps:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+3. Make your changes
+4. Add tests for new features
+5. Ensure all tests pass (`make test`)
+6. Commit your changes (`git commit -m 'Add AmazingFeature'`)
+7. Push to the branch (`git push origin feature/AmazingFeature`)
+8. Open a Pull Request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ---
 
@@ -899,33 +1063,68 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👥 Authors
 
-- **Stavanger** - *Initial work* - [@aryaputra03](https://github.com/aryaputra03)
+**Ganendra Geanza Aryaputra (Stavanger)**
+
+- GitHub: [@aryaputra03](https://github.com/aryaputra03)
+- LinkedIn: [aryaputra](https://www.linkedin.com/in/ganendra-geanza-aryaputra-b8071a194)
+- Email: Aryaganendra45@gmail.com
 
 ---
 
 ## 🙏 Acknowledgments
 
-- Thanks to the open-source community
-- Scikit-learn team for the ML framework
+- Scikit-learn team for the excellent ML framework
+- FastAPI team for the amazing web framework
 - Docker team for containerization technology
 - DVC team for data versioning tools
 - GitHub for Actions CI/CD platform
+- The open-source community
 
 ---
 
-## 📞 Contact
+## 📞 Contact & Support
 
-- Email: Aryaganendra45@gmail.com
-- GitHub: [@aryaputra03](https://github.com/aryaputra03)
-- LinkedIn: [aryaputra](https://www.linkedin.com/in/ganendra-geanza-aryaputra-b8071a194)
-- Project Link: [https://github.com/aryaputra03/Docker_Churn_Classifier](https://github.com/aryaputra03/Docker_Churn_Classifier)
+- **Email**: Aryaganendra45@gmail.com
+- **GitHub**: [@aryaputra03](https://github.com/aryaputra03)
+- **LinkedIn**: [Ganendra Geanza Aryaputra](https://www.linkedin.com/in/ganendra-geanza-aryaputra-b8071a194)
+- **Project Repository**: [Docker_Churn_Classifier](https://github.com/aryaputra03/Docker_Churn_Classifier)
+- **Issues**: [GitHub Issues](https://github.com/aryaputra03/Docker_Churn_Classifier/issues)
+
+---
+
+## 🎯 Project Roadmap
+
+### Completed ✅
+- Complete ML pipeline with DVC
+- Docker containerization
+- FastAPI REST API
+- Database integration
+- CI/CD with GitHub Actions
+- Comprehensive testing
+- Interactive API documentation
+
+### In Progress 🚧
+- Advanced monitoring dashboard
+- Model A/B testing framework
+- Real-time prediction streaming
+
+### Planned 📋
+- Web UI dashboard
+- Advanced analytics features
+- Multi-model ensemble support
+- Automated retraining pipeline
+- Cloud deployment templates (AWS, GCP, Azure)
 
 ---
 
 <p align="center">
-  Made with ❤️ for MLOps enthusiasts
+  <strong>Made with ❤️ for MLOps enthusiasts</strong>
 </p>
 
 <p align="center">
   ⭐ Star this repo if you find it helpful!
+</p>
+
+<p align="center">
+  <a href="#-table-of-contents">Back to Top ↑</a>
 </p>

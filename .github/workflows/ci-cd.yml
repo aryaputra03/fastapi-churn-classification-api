@@ -426,7 +426,8 @@ jobs:
       
       - name: Pull latest image 
         run: |
-          docker pull ${{ env.DOCKER_IMAGE }}:latest || docker build -t ${{ env.DOCKER_IMAGE }}:latest -f docker/Dockerfile .
+          docker pull stavanger/churn-classifier-api:latest || \
+          docker build -t stavanger/churn-classifier-api:latest -f docker/Dockerfile .
 
       - name: Test preprocessing
         run: |
