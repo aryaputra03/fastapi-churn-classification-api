@@ -11,12 +11,10 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from src.config import Config
 from src.utils import logger
 
-
 class MLService:
     """
     Service class for ML model operations
     """
-    
     def __init__(self, model_path: str = None):
         """
         Initialize ML service
@@ -30,8 +28,7 @@ class MLService:
         self.model_info = {}
         self.label_encoders = {}
         self.scaler = None
-        
-        # Try to load model on initialization
+
         try:
             self.load_model()
         except Exception as e:
@@ -45,10 +42,8 @@ class MLService:
             model_path: Optional path to model file
         """
         try:
-            # Load config
             self.config = Config("params.yml")
-            
-            # Determine model path
+
             if model_path is None:
                 model_path = self.model_path or self.config.evaluate['model_path']
             
@@ -56,13 +51,11 @@ class MLService:
             
             if not model_path.exists():
                 raise FileNotFoundError(f"Model file not found: {model_path}")
-            
-            # Load model
+
             logger.info(f"Loading model from {model_path}")
             self.model = joblib.load(model_path)
             self.model_path = str(model_path)
-            
-            # Try to load saved preprocessor
+
             preprocessor_path = model_path.parent / "preprocessor.pkl"
             if preprocessor_path.exists():
                 logger.info(f"Loading preprocessor from {preprocessor_path}")
@@ -73,8 +66,7 @@ class MLService:
             else:
                 logger.warning("No saved preprocessor found, initializing new one")
                 self._initialize_preprocessors()
-            
-            # Store model info
+
             self.model_info = {
                 "model_type": type(self.model).__name__,
                 "model_version": "1.0.0",
@@ -82,7 +74,7 @@ class MLService:
                 "loaded_at": pd.Timestamp.now().isoformat()
             }
             
-            logger.info("✅ Model loaded successfully")
+            logger.info("Model loaded successfully")
             
         except Exception as e:
             logger.error(f"Failed to load model: {str(e)}")
@@ -90,7 +82,6 @@ class MLService:
     
     def _initialize_preprocessors(self):
         """Initialize label encoders and scaler with expected mappings"""
-        # Initialize label encoders with expected categories
         self.label_encoders = {
             'gender': LabelEncoder().fit(['Female', 'Male']),
             'Contract': LabelEncoder().fit(['Month-to-month', 'One year', 'Two year']),
@@ -103,8 +94,7 @@ class MLService:
             'InternetService': LabelEncoder().fit(['DSL', 'Fiber optic', 'No']),
             'tenure_group': LabelEncoder().fit(['0-1yr', '1-2yr', '2-4yr', '4-6yr'])
         }
-        
-        # Initialize scaler with representative data (including charge_ratio)
+
         scale_method = self.config.preprocess.get('scale_method', 'standard')
         if scale_method == 'standard':
             self.scaler = StandardScaler()
@@ -112,11 +102,10 @@ class MLService:
             from sklearn.preprocessing import MinMaxScaler
             self.scaler = MinMaxScaler()
         
-        # Fit scaler on representative data (4 numerical features now)
         representative_data = np.array([
-            [0, 18.25, 18.25, 0.5],      # Min values + low ratio
-            [72, 118.75, 8564.75, 100],  # Max values + high ratio
-            [36, 65.0, 2500.0, 40]       # Mid values + mid ratio
+            [0, 18.25, 18.25, 0.5],      
+            [72, 118.75, 8564.75, 100],
+            [36, 65.0, 2500.0, 40]
         ])
         self.scaler.fit(representative_data)
         
@@ -137,17 +126,14 @@ class MLService:
             Preprocessed numpy array ready for prediction
         """
         try:
-            # Make a copy
             df = data.copy()
             
             logger.info(f"Input columns: {df.columns.tolist()}")
             logger.info(f"Input shape: {df.shape}")
-            
-            # Remove customer_id if present (not used in prediction)
+
             if 'customer_id' in df.columns:
                 df = df.drop(columns=['customer_id'])
-            
-            # Map input columns to expected feature names
+
             column_mapping = {
                 'gender': 'gender',
                 'tenure': 'tenure',
@@ -157,20 +143,16 @@ class MLService:
                 'payment_method': 'PaymentMethod',
                 'internet_service': 'InternetService'
             }
-            
-            # Rename columns
+
             df = df.rename(columns=column_mapping)
             logger.info(f"After rename: {df.columns.tolist()}")
-            
-            # Handle missing values in TotalCharges
+
             if 'TotalCharges' in df.columns:
                 df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
                 df['TotalCharges'] = df['TotalCharges'].fillna(df['MonthlyCharges'])
-            
-            # Feature Engineering (must match training pipeline)
+
             logger.info("Creating engineered features...")
-            
-            # Create tenure_group
+
             if 'tenure' in df.columns:
                 df['tenure_group'] = pd.cut(
                     df['tenure'],
@@ -178,14 +160,11 @@ class MLService:
                     labels=['0-1yr', '1-2yr', '2-4yr', '4-6yr']
                 )
                 logger.info(f"Created tenure_group: {df['tenure_group'].unique()}")
-            
-            # Create charge_ratio
+
             if 'MonthlyCharges' in df.columns and 'TotalCharges' in df.columns:
                 df['charge_ratio'] = df['TotalCharges'] / (df['MonthlyCharges'] + 1e-6)
                 logger.info(f"Created charge_ratio (sample): {df['charge_ratio'].iloc[0]:.4f}")
-            
-            # Normalize values before encoding
-            # PaymentMethod normalization
+
             if 'PaymentMethod' in df.columns:
                 payment_mapping = {
                     'bank transfer': 'Bank transfer (automatic)',
@@ -196,13 +175,11 @@ class MLService:
                     'mailed check': 'Mailed check'
                 }
                 df['PaymentMethod'] = df['PaymentMethod'].str.lower().map(payment_mapping)
-                
-                # If mapping failed, use original value
+
                 if df['PaymentMethod'].isna().any():
                     logger.warning(f"Unknown payment methods: {data['payment_method'].unique()}")
                     df['PaymentMethod'] = df['PaymentMethod'].fillna('Electronic check')
-            
-            # Encode categorical variables (including tenure_group)
+
             categorical_cols = ['gender', 'Contract', 'PaymentMethod', 'InternetService', 'tenure_group']
             for col in categorical_cols:
                 if col in df.columns:
@@ -217,26 +194,22 @@ class MLService:
                         logger.error(f"Values: {df[col].unique()}")
                         logger.error(f"Expected classes: {self.label_encoders[col].classes_}")
                         raise
-            
-            # Scale numerical features (including charge_ratio)
+
             numerical_cols = ['tenure', 'MonthlyCharges', 'TotalCharges', 'charge_ratio']
             existing_numerical = [col for col in numerical_cols if col in df.columns]
             
             if existing_numerical and self.scaler is not None:
                 logger.info(f"Scaling numerical features: {existing_numerical}")
                 df[existing_numerical] = self.scaler.transform(df[existing_numerical])
-            
-            # Ensure correct column order (must match training)
+
             expected_order = ['gender', 'tenure', 'MonthlyCharges', 'TotalCharges', 
                              'Contract', 'PaymentMethod', 'InternetService',
                              'tenure_group', 'charge_ratio']
-            
-            # Check if all columns exist
+
             missing_cols = set(expected_order) - set(df.columns)
             if missing_cols:
                 raise ValueError(f"Missing columns after preprocessing: {missing_cols}")
-            
-            # Reorder columns
+
             df = df[expected_order]
             logger.info(f"Final preprocessed shape: {df.shape}")
             logger.info(f"Sample values: {df.iloc[0].tolist()}")
@@ -263,12 +236,10 @@ class MLService:
         
         try:
             logger.info(f"Starting prediction for {len(data)} samples")
-            
-            # Preprocess input
+
             X = self.preprocess_input(data)
             logger.info(f"Preprocessed data shape: {X.shape}")
-            
-            # Make predictions
+
             predictions = self.model.predict(X)
             probabilities = self.model.predict_proba(X)
             
@@ -294,7 +265,6 @@ class MLService:
                 "accuracy": None
             }
         
-        # Try to get feature names
         features = []
         if hasattr(self.model, 'feature_names_in_'):
             features = self.model.feature_names_in_.tolist()
@@ -308,5 +278,5 @@ class MLService:
             "model_version": self.model_info.get("model_version", "1.0.0"),
             "features": features,
             "trained_at": self.model_info.get("loaded_at"),
-            "accuracy": None  # Could load from metrics.json
+            "accuracy": None
         }

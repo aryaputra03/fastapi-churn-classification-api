@@ -18,30 +18,25 @@ def create_and_save_preprocessor():
     config = Config("params.yml")
     model_path = Path(config.evaluate['model_path'])
     preprocessor_path = model_path.parent / "preprocessor.pkl"
-    
-    # Load the processed training data to fit the preprocessor
+
     processed_path = config.data['processed_path']
     
     if Path(processed_path).exists():
         logger.info(f"Loading processed data from {processed_path}")
         df = load_data(processed_path)
-        
-        # Get the numerical columns that were scaled during training (including engineered features)
+
         numerical_cols = config.preprocess.get('numerical_features', ['tenure', 'MonthlyCharges', 'TotalCharges'])
-        
-        # Add engineered numerical feature
+
         if 'charge_ratio' in df.columns:
             numerical_cols.append('charge_ratio')
-        
-        # Fit scaler on the actual training data
+
         scale_method = config.preprocess.get('scale_method', 'standard')
         if scale_method == 'standard':
             scaler = StandardScaler()
         else:
             from sklearn.preprocessing import MinMaxScaler
             scaler = MinMaxScaler()
-        
-        # Extract numerical columns that exist in the processed data
+
         existing_numerical = [col for col in numerical_cols if col in df.columns]
         if existing_numerical:
             scaler.fit(df[existing_numerical])
@@ -49,7 +44,6 @@ def create_and_save_preprocessor():
             logger.info(f"Scaler mean: {scaler.mean_}")
             logger.info(f"Scaler scale: {scaler.scale_}")
         else:
-            # Fallback: fit on representative data
             logger.warning("No numerical columns found, using representative data")
             representative_data = pd.DataFrame({
                 'tenure': [0, 72, 36],
@@ -59,7 +53,6 @@ def create_and_save_preprocessor():
             scaler.fit(representative_data[existing_numerical] if existing_numerical else representative_data)
     else:
         logger.warning(f"Processed data not found at {processed_path}, using default values")
-        # Use default representative data
         scale_method = config.preprocess.get('scale_method', 'standard')
         if scale_method == 'standard':
             scaler = StandardScaler()
@@ -74,9 +67,7 @@ def create_and_save_preprocessor():
             'charge_ratio': [0.5, 100, 40]
         })
         scaler.fit(representative_data)
-    
-    # Initialize label encoders with expected categories
-    # These should match the categories used during training (including engineered features)
+
     label_encoders = {
         'gender': LabelEncoder().fit(['Female', 'Male']),
         'Contract': LabelEncoder().fit(['Month-to-month', 'One year', 'Two year']),
@@ -94,7 +85,6 @@ def create_and_save_preprocessor():
     for key, encoder in label_encoders.items():
         logger.info(f"  {key}: {encoder.classes_}")
     
-    # Save preprocessor
     preprocessor = {
         'label_encoders': label_encoders,
         'scaler': scaler
@@ -102,7 +92,7 @@ def create_and_save_preprocessor():
     
     preprocessor_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(preprocessor, preprocessor_path)
-    logger.info(f"💾 Preprocessor saved to {preprocessor_path}")
+    logger.info(f"Preprocessor saved to {preprocessor_path}")
     
     return preprocessor_path
 

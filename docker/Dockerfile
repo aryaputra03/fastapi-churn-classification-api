@@ -20,6 +20,10 @@ LABEL maintainer="aryaganendra45@gmail.com"
 LABEL version="1.0.0"
 LABEL description="Customer Churn Classification ML Model"
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
