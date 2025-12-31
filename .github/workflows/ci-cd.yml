@@ -17,7 +17,7 @@ on:
         default: "false"
 
 env:
-  DOCKER_IMAGE: ${{ secrets.DOCKER_IMAGE }}/churn-classifier-api
+  DOCKER_IMAGE: ${{ secrets.DOCKER_IMAGE }}churn-classifier-api
   PYTHON_VERSION: '3.10'
   NODE_ENV: production
 
