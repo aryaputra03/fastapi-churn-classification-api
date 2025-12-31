@@ -387,8 +387,7 @@ jobs:
           file: ./docker/Dockerfile.api
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/churn-classifier-api:api-latest
-            ${{ secrets.DOCKER_USERNAME }}/churn-classifier-api:api-${{ github.sha }}
+            stavanger/churn-classifier-api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
